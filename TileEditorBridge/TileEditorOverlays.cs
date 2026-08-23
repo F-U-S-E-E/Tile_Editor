@@ -473,7 +473,6 @@ namespace Hrogers.TileEditorBridge
         {
             if (label != null)
                 Labels.Remove(label);
-            RemoveDestroyedLabels();
             if (Labels.Count != 0 || _runner == null)
                 return;
             var host = _runner.gameObject;

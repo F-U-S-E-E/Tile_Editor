@@ -899,12 +899,24 @@ namespace Hrogers.TileEditorBridge
         {
             if (_trainSignalUndo.Count == 0)
                 return;
-            _trainSignalRedo.Push(
-                (JObject)_trainSignalsDocument.DeepClone());
-            _trainSignalsDocument = _trainSignalUndo.Pop();
-            if (FindTrainSignal(_selectedTrainSignalId) == null)
-                _selectedTrainSignalId = string.Empty;
-            SaveTrainSignals();
+            var current = (JObject)_trainSignalsDocument.DeepClone();
+            var previous = _trainSignalUndo.Pop();
+            var selected = _selectedTrainSignalId;
+            try
+            {
+                _trainSignalsDocument = previous;
+                if (FindTrainSignal(_selectedTrainSignalId) == null)
+                    _selectedTrainSignalId = string.Empty;
+                SaveTrainSignals();
+                _trainSignalRedo.Push(current);
+            }
+            catch
+            {
+                _trainSignalsDocument = current;
+                _selectedTrainSignalId = selected;
+                _trainSignalUndo.Push(previous);
+                throw;
+            }
             RefreshTrainSignalOverlays();
         }
 
@@ -912,12 +924,24 @@ namespace Hrogers.TileEditorBridge
         {
             if (_trainSignalRedo.Count == 0)
                 return;
-            _trainSignalUndo.Push(
-                (JObject)_trainSignalsDocument.DeepClone());
-            _trainSignalsDocument = _trainSignalRedo.Pop();
-            if (FindTrainSignal(_selectedTrainSignalId) == null)
-                _selectedTrainSignalId = string.Empty;
-            SaveTrainSignals();
+            var current = (JObject)_trainSignalsDocument.DeepClone();
+            var next = _trainSignalRedo.Pop();
+            var selected = _selectedTrainSignalId;
+            try
+            {
+                _trainSignalsDocument = next;
+                if (FindTrainSignal(_selectedTrainSignalId) == null)
+                    _selectedTrainSignalId = string.Empty;
+                SaveTrainSignals();
+                _trainSignalUndo.Push(current);
+            }
+            catch
+            {
+                _trainSignalsDocument = current;
+                _selectedTrainSignalId = selected;
+                _trainSignalRedo.Push(next);
+                throw;
+            }
             RefreshTrainSignalOverlays();
         }
 
@@ -1024,26 +1048,9 @@ namespace Hrogers.TileEditorBridge
             var directory = Path.GetDirectoryName(_trainSignalsPath);
             if (!string.IsNullOrWhiteSpace(directory))
                 Directory.CreateDirectory(directory);
-            var temp = _trainSignalsPath + ".tile-editor.tmp";
-            File.WriteAllText(
-                temp,
-                _trainSignalsDocument.ToString(Formatting.Indented));
-            if (File.Exists(_trainSignalsPath))
-            {
-                try
-                {
-                    File.Replace(temp, _trainSignalsPath, null);
-                }
-                catch
-                {
-                    File.Delete(_trainSignalsPath);
-                    File.Move(temp, _trainSignalsPath);
-                }
-            }
-            else
-            {
-                File.Move(temp, _trainSignalsPath);
-            }
+            WritePackageManifestAtomically(
+                _trainSignalsPath,
+                _trainSignalsDocument);
             ReloadStandaloneSignalRuntime();
         }
 

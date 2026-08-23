@@ -488,18 +488,40 @@ namespace Hrogers.TileEditorBridge
         {
             if (_ctcUndo.Count == 0)
                 return;
-            _ctcRedo.Push((JObject)_ctcDocument.DeepClone());
-            _ctcDocument = _ctcUndo.Pop();
-            SaveCtcDocument();
+            var current = (JObject)_ctcDocument.DeepClone();
+            var previous = _ctcUndo.Pop();
+            try
+            {
+                _ctcDocument = previous;
+                SaveCtcDocument();
+                _ctcRedo.Push(current);
+            }
+            catch
+            {
+                _ctcDocument = current;
+                _ctcUndo.Push(previous);
+                throw;
+            }
         }
 
         internal void RedoCtc()
         {
             if (_ctcRedo.Count == 0)
                 return;
-            _ctcUndo.Push((JObject)_ctcDocument.DeepClone());
-            _ctcDocument = _ctcRedo.Pop();
-            SaveCtcDocument();
+            var current = (JObject)_ctcDocument.DeepClone();
+            var next = _ctcRedo.Pop();
+            try
+            {
+                _ctcDocument = next;
+                SaveCtcDocument();
+                _ctcUndo.Push(current);
+            }
+            catch
+            {
+                _ctcDocument = current;
+                _ctcRedo.Push(next);
+                throw;
+            }
         }
 
         private void ExecuteCtcEdit(string name, Action mutation)
@@ -532,7 +554,17 @@ namespace Hrogers.TileEditorBridge
         private void SaveCtcDocument()
         {
             EnsureCtcDocument();
-            EnsureSignalRuntimeRequirement();
+            try
+            {
+                EnsureSignalRuntimeRequirement();
+            }
+            catch (Exception exception)
+            {
+                _logger?.Warning(
+                    "Could not annotate the package manifest for portable "
+                    + "CTC; ctc-system.json will still be saved: "
+                    + exception.Message);
+            }
             if (string.IsNullOrWhiteSpace(_ctcBackupPath)
                 && File.Exists(_ctcPath))
             {
@@ -546,26 +578,7 @@ namespace Hrogers.TileEditorBridge
             var directory = Path.GetDirectoryName(_ctcPath);
             if (!string.IsNullOrWhiteSpace(directory))
                 Directory.CreateDirectory(directory);
-            var temp = _ctcPath + ".tile-editor.tmp";
-            File.WriteAllText(
-                temp,
-                _ctcDocument.ToString(Formatting.Indented));
-            if (File.Exists(_ctcPath))
-            {
-                try
-                {
-                    File.Replace(temp, _ctcPath, null);
-                }
-                catch
-                {
-                    File.Delete(_ctcPath);
-                    File.Move(temp, _ctcPath);
-                }
-            }
-            else
-            {
-                File.Move(temp, _ctcPath);
-            }
+            WritePackageManifestAtomically(_ctcPath, _ctcDocument);
             ReloadStandaloneSignalRuntime();
         }
 

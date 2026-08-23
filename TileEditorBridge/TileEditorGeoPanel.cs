@@ -3846,6 +3846,7 @@ namespace Hrogers.TileEditorBridge
         private void DrawGradeTool()
         {
             var node = _mapEditor.SelectedNode;
+            var gradeToolEnabled = GUI.enabled;
             GUILayout.Label("Smooth grade transition", _titleStyle);
             GUILayout.Label(
                 "Builds a vertical easement from the selected node's current grade "
@@ -3856,7 +3857,7 @@ namespace Hrogers.TileEditorBridge
             DrawTextField("Target grade (%)", ref _targetGrade);
             DrawTextField("Control sections", ref _gradeSteps);
 
-            GUI.enabled = node != null;
+            GUI.enabled = gradeToolEnabled && node != null;
             if (GUILayout.Button("Build Smooth Grade Track", GUILayout.Height(34f)))
             {
                 RunGameAction("Built smooth grade transition", () =>
@@ -3883,7 +3884,7 @@ namespace Hrogers.TileEditorBridge
                                         + "% grade to " + newNode;
                 });
             }
-            GUI.enabled = true;
+            GUI.enabled = gradeToolEnabled;
             GUILayout.Label(
                 "Use 6-12 sections for long crest/sag transitions. Undo removes the "
                 + "entire generated transition as one operation.",
@@ -3897,11 +3898,13 @@ namespace Hrogers.TileEditorBridge
                 + "elevations and pitch into one continuous vertical curve.",
                 _lineStyle);
             GUILayout.BeginHorizontal();
-            GUI.enabled = node != null
+            GUI.enabled = gradeToolEnabled
+                          && node != null
                           && !_gradeChainNodeIds.Contains(node.Id);
             if (GUILayout.Button("Add Selected", GUILayout.Height(29f)))
                 _gradeChainNodeIds.Add(node.Id);
-            GUI.enabled = _gradeChainNodeIds.Count > 0;
+            GUI.enabled = gradeToolEnabled
+                          && _gradeChainNodeIds.Count > 0;
             if (GUILayout.Button("Undo Node", GUILayout.Height(29f)))
             {
                 _gradeChainNodeIds.RemoveAt(
@@ -3909,7 +3912,7 @@ namespace Hrogers.TileEditorBridge
             }
             if (GUILayout.Button("Clear", GUILayout.Height(29f)))
                 _gradeChainNodeIds.Clear();
-            GUI.enabled = true;
+            GUI.enabled = gradeToolEnabled;
             GUILayout.EndHorizontal();
             GUILayout.Label(
                 "Chain: " + _gradeChainNodeIds.Count + " node"
@@ -3928,7 +3931,8 @@ namespace Hrogers.TileEditorBridge
                     _mutedStyle);
             }
 
-            GUI.enabled = _gradeChainNodeIds.Count >= 2;
+            GUI.enabled = gradeToolEnabled
+                          && _gradeChainNodeIds.Count >= 2;
             if (GUILayout.Button(
                     "Read Current End Grades",
                     GUILayout.Height(29f)))
@@ -3947,14 +3951,15 @@ namespace Hrogers.TileEditorBridge
                         CultureInfo.InvariantCulture);
                 });
             }
-            GUI.enabled = true;
+            GUI.enabled = gradeToolEnabled;
             DrawTextField(
                 "Entry grade in chain direction (%)",
                 ref _gradeChainStartGrade);
             DrawTextField(
                 "Exit grade in chain direction (%)",
                 ref _gradeChainEndGrade);
-            GUI.enabled = _gradeChainNodeIds.Count >= 3;
+            GUI.enabled = gradeToolEnabled
+                          && _gradeChainNodeIds.Count >= 3;
             if (GUILayout.Button(
                     "Smooth Existing Grade Chain",
                     GUILayout.Height(34f)))
@@ -3969,7 +3974,7 @@ namespace Hrogers.TileEditorBridge
                             _gradeChainEndGrade,
                             "exit grade")));
             }
-            GUI.enabled = true;
+            GUI.enabled = gradeToolEnabled;
             GUILayout.Label(
                 "Use at least three connected, non-switch nodes. Endpoint heights "
                 + "do not move; disconnected chains, duplicate nodes, and junctions "

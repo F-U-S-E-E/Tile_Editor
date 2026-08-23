@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -28,7 +28,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify the wiki has been initialized
+      - name: Verify wiki authentication and reachability
         shell: pwsh
         env:
           WIKI_TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
@@ -38,10 +38,16 @@ jobs:
             Write-Host "::error::Configure WIKI_PUSH_TOKEN with write access to the wiki repository."
             exit 1
           }
-          $url = "https://x-access-token:$($env:WIKI_TOKEN)@github.com/$($env:REPO).wiki.git"
+          $basic = [Convert]::ToBase64String(
+            [Text.Encoding]::ASCII.GetBytes("x-access-token:$($env:WIKI_TOKEN)"))
+          Write-Host "::add-mask::$basic"
+          $env:GIT_CONFIG_COUNT = "1"
+          $env:GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader"
+          $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
+          $url = "https://github.com/$($env:REPO).wiki.git"
           git ls-remote $url | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::The wiki repository is not initialized or could not be reached. Create and save its first page in GitHub, then re-run this workflow."
+            Write-Host "::error::The wiki repository is not initialized or could not be reached with WIKI_PUSH_TOKEN. Create its first page and verify token access, then re-run this workflow."
             exit 1
           }
 
@@ -57,5 +63,10 @@ jobs:
           WIKI_TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          $url = "https://x-access-token:$($env:WIKI_TOKEN)@github.com/$($env:REPO).wiki.git"
-          ./scripts/Sync-Wiki.ps1 -WikiUrl $url -WorkDir "$($env:RUNNER_TEMP)/tile-editor-wiki-sync"
+          $basic = [Convert]::ToBase64String(
+            [Text.Encoding]::ASCII.GetBytes("x-access-token:$($env:WIKI_TOKEN)"))
+          Write-Host "::add-mask::$basic"
+          $env:GIT_CONFIG_COUNT = "1"
+          $env:GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader"
+          $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
+          ./scripts/Sync-Wiki.ps1 -Repository $env:REPO -WorkDir "$($env:RUNNER_TEMP)/tile-editor-wiki-sync"

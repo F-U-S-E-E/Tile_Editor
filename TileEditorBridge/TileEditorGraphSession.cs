@@ -318,7 +318,8 @@ namespace Hrogers.TileEditorBridge
             if (!IsPortableModId(modId))
             {
                 throw new InvalidOperationException(
-                    "Mod ID must use only letters, numbers, underscores, and dots.");
+                    "Mod ID must start and end with a letter, number, or underscore; "
+                    + "internal characters may also include dots.");
             }
             if (string.Equals(modId, "railloader", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(modId, "railroader", StringComparison.OrdinalIgnoreCase)
@@ -355,7 +356,18 @@ namespace Hrogers.TileEditorBridge
 
             var modsFolder = Path.Combine(_gameRoot, "Mods");
             Directory.CreateDirectory(modsFolder);
-            var modFolder = Path.Combine(modsFolder, modId);
+            var resolvedModsFolder = Path.GetFullPath(modsFolder).TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+            var modFolder = Path.GetFullPath(Path.Combine(resolvedModsFolder, modId));
+            if (!string.Equals(
+                    Path.GetDirectoryName(modFolder),
+                    resolvedModsFolder,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Mod ID must create one folder below the Railroader Mods folder.");
+            }
             if (Directory.Exists(modFolder)
                 && Directory.EnumerateFileSystemEntries(modFolder).Any())
             {
@@ -382,7 +394,7 @@ namespace Hrogers.TileEditorBridge
                         new JObject
                         {
                             ["Id"] = "FUSE",
-                            ["NotBefore"] = "1.0.0",
+                            ["NotBefore"] = "1.0.6",
                         },
                     },
                     ["LoadAfter"] = new JArray("FUSE"),
@@ -504,9 +516,14 @@ namespace Hrogers.TileEditorBridge
         {
             if (string.IsNullOrWhiteSpace(value))
                 return false;
+            if (value[0] == '.' || value[value.Length - 1] == '.')
+                return false;
             foreach (var character in value)
             {
-                if (!char.IsLetterOrDigit(character)
+                var asciiLetterOrDigit = character >= 'A' && character <= 'Z'
+                    || character >= 'a' && character <= 'z'
+                    || character >= '0' && character <= '9';
+                if (!asciiLetterOrDigit
                     && character != '_'
                     && character != '.')
                 {
@@ -661,6 +678,7 @@ namespace Hrogers.TileEditorBridge
             var text = File.ReadAllText(path);
             var document = JObject.Parse(text);
             EnsureTrackObjects(document);
+            ResetWaterSession();
             _document = document;
             _fuseNativeDocument = IsFuseNativeDocument(path, document);
             ResetOpenGraphIdentitySets();
@@ -685,7 +703,7 @@ namespace Hrogers.TileEditorBridge
             ResetScenerySession();
             ResetMandelaSession();
             ResetOperationsSession();
-            ResetWaterSession();
+            SyncWaterSurfacesAfterDocumentRestore();
             ResetTrainSignalSession();
             ResetCtcSession();
             if (_operationsMode)
@@ -1764,6 +1782,7 @@ namespace Hrogers.TileEditorBridge
                 ResetScenerySession();
                 ResetMandelaSession();
                 ResetOperationsSession();
+                ResetWaterSession();
                 ResetTrainSignalSession();
                 ResetCtcSession();
             }
@@ -2945,6 +2964,14 @@ namespace Hrogers.TileEditorBridge
             DisposeScenerySession();
             DisposeMandelaSession();
             DisposeOperationsSession();
+            try
+            {
+                ResetWaterSession();
+            }
+            catch (Exception ex)
+            {
+                _logger?.Warning("Could not completely restore live water while closing Tile Editor: " + ex.Message);
+            }
             DisposeCtcSession();
             DisposeTrainSignalOverlays();
             foreach (var overlay in Resources.FindObjectsOfTypeAll<TileEditorNodeOverlay>())

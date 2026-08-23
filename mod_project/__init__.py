@@ -42,7 +42,7 @@ from .layer import (
 )
 
 # ── Project ────────────────────────────────────────────────────────────────
-from .project import ModProject
+from .project import ModProject, is_portable_mod_id
 
 # ── Progression ────────────────────────────────────────────────────────────
 from .progression import (
@@ -126,7 +126,7 @@ __all__ = [
     'SIGNAL_ASPECTS', 'SIGNAL_HEAD_CONFIGS', 'SIGNAL_DIRECTIONS', 'CTC_DIRECTIONS',
     'SWITCH_FILTERS', 'AI_HEURISTIC_COSTS', 'CTC_KEY_FORMATS',
     # Core classes
-    'Layer', 'ModProject',
+    'Layer', 'ModProject', 'is_portable_mod_id',
     # Progression
     'ProgressionProject', 'ProgressionSection', 'MapFeature', 'AreaIndustry', 'Area',
     # Geometry

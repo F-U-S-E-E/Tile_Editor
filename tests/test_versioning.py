@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -123,6 +124,63 @@ class PackageVersionTests(unittest.TestCase):
         )
         self.assertIn(f"Hrogers Tile Editor Suite {expected}", launcher_source)
 
+    def test_release_packages_license_and_wiki_auth_stays_out_of_urls(self):
+        root = Path(__file__).resolve().parent.parent
+        bridge = root / "TileEditorBridge"
+        complete_package = (
+            bridge / "package_complete_mod.ps1"
+        ).read_text(encoding="utf-8")
+        portable_package = (
+            bridge / "package_portable_windows.ps1"
+        ).read_text(encoding="utf-8")
+        workflow = (
+            root / ".github" / "workflows" / "sync-wiki.yml"
+        ).read_text(encoding="utf-8")
+        wiki_sync = (
+            root / "scripts" / "Sync-Wiki.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertTrue((root / "LICENSE").is_file())
+        self.assertIn('Join-Path $repoRoot "LICENSE"', complete_package)
+        self.assertIn('Join-Path $stageDir "LICENSE"', complete_package)
+        self.assertIn("Release checksums must include LICENSE", complete_package)
+        self.assertIn("Portable checksums must include LICENSE", portable_package)
+        self.assertNotIn("x-access-token:$($env:WIKI_TOKEN)@", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertIn("GIT_CONFIG_VALUE_0", workflow)
+        self.assertIn("AUTHORIZATION: basic", workflow)
+        self.assertIn("[string] $Repository", wiki_sync)
+        self.assertIn('$repositoryBase = "https://github.com/$Repository"', wiki_sync)
+        self.assertIn('$ownerBase = "https://github.com/$repositoryOwner"', wiki_sync)
+        self.assertIn("without embedded credentials", wiki_sync)
+        self.assertNotIn("https://github.com/Hrogers-Rog/Tile_Editor", wiki_sync)
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        if os.name == "nt" and powershell:
+            secret = "wiki-secret-regression-value"
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(root / "scripts" / "Sync-Wiki.ps1"),
+                    "-Repository",
+                    "F-U-S-E-E/Tile_Editor",
+                    "-WikiUrl",
+                    f"https://wiki-user:{secret}@github.com/"
+                    "F-U-S-E-E/Tile_Editor.wiki.git",
+                    "-DryRun",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(secret, result.stdout + result.stderr)
+
     def test_release_zip_entries_use_forward_slashes(self):
         if os.name != "nt":
             self.skipTest("Windows release-packaging test")
@@ -136,15 +194,29 @@ class PackageVersionTests(unittest.TestCase):
         helper = root / "TileEditorBridge" / "New-ForwardSlashZip.ps1"
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
-            source = temporary_path / "PackageRoot"
-            nested = source / "nested"
-            nested.mkdir(parents=True)
-            (nested / "example.txt").write_text("ok", encoding="utf-8")
-            archive = temporary_path / "package.zip"
+            sources = []
+            archives = []
+            for index, timestamp in enumerate((946684800, 1704067200)):
+                source = temporary_path / f"source-{index}" / "Package'Root"
+                nested = source / "nested"
+                nested.mkdir(parents=True)
+                example = nested / "example.txt"
+                example.write_text("ok", encoding="utf-8")
+                os.utime(example, (timestamp, timestamp))
+                sources.append(source)
+                archives.append(temporary_path / f"package-{index}.zip")
+
+            def powershell_literal(path):
+                return str(path).replace("'", "''")
+
             command = (
-                f". '{helper}'; "
-                f"New-ForwardSlashZip -SourceDirectory '{source}' "
-                f"-DestinationPath '{archive}'"
+                f". '{powershell_literal(helper)}'; "
+                f"New-ForwardSlashZip -SourceDirectory "
+                f"'{powershell_literal(sources[0])}' "
+                f"-DestinationPath '{powershell_literal(archives[0])}'; "
+                f"New-ForwardSlashZip -SourceDirectory "
+                f"'{powershell_literal(sources[1])}' "
+                f"-DestinationPath '{powershell_literal(archives[1])}'"
             )
             result = subprocess.run(
                 [
@@ -162,11 +234,22 @@ class PackageVersionTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            with zipfile.ZipFile(archive) as package:
+            with zipfile.ZipFile(archives[0]) as package:
                 self.assertEqual(
                     package.namelist(),
-                    ["PackageRoot/nested/example.txt"],
+                    ["Package'Root/nested/example.txt"],
                 )
+                self.assertEqual(
+                    package.infolist()[0].date_time,
+                    (2000, 1, 1, 0, 0, 0),
+                )
+            hashes = [
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in archives
+            ]
+            self.assertEqual(hashes[0], hashes[1])
+            helper_source = helper.read_text(encoding="utf-8")
+            self.assertIn("SupportsShouldProcess = $true", helper_source)
 
     def test_desktop_dirty_terrain_count_is_thread_safe(self):
         root = Path(__file__).resolve().parent.parent
@@ -983,6 +1066,12 @@ class PackageVersionTests(unittest.TestCase):
             "TileEditorGradeLabelBillboards.Refresh(Camera.main)",
             overlay_source,
         )
+        unregister = overlay_source.split(
+            "internal static void Unregister(TextMesh label)", 1
+        )[1].split(
+            "internal static void Refresh(Camera camera)", 1
+        )[0]
+        self.assertNotIn("RemoveDestroyedLabels();", unregister)
 
     def test_bridge_heartbeat_file_io_is_coalesced_off_main_thread(self):
         root = Path(__file__).resolve().parent.parent
@@ -2022,9 +2111,10 @@ class PackageVersionTests(unittest.TestCase):
             "node.transform.localEulerAngles) * offset",
             move_method,
         )
-        self.assertNotIn(
-            "0f, node.transform.localEulerAngles.y, 0f",
+        self.assertNotRegex(
             move_method,
+            r"Quaternion\.Euler\(\s*0f,\s*"
+            r"node\.transform\.localEulerAngles\.y,\s*0f\)",
         )
 
     def test_in_game_grade_chain_holds_endpoints_and_blocks_junctions(self):
@@ -2050,6 +2140,17 @@ class PackageVersionTests(unittest.TestCase):
         self.assertIn("useTargetedTrackRebuild: true", method)
         self.assertIn('"Read Current End Grades"', panel_source)
         self.assertIn('"Smooth Existing Grade Chain"', panel_source)
+        grade_tool = panel_source.split(
+            "private void DrawGradeTool()", 1
+        )[1].split(
+            "private void DrawArcTool()", 1
+        )[0]
+        self.assertIn("var gradeToolEnabled = GUI.enabled;", grade_tool)
+        self.assertNotIn("GUI.enabled = true;", grade_tool)
+        self.assertGreaterEqual(
+            grade_tool.count("GUI.enabled = gradeToolEnabled"),
+            8,
+        )
 
     def test_gauge_metadata_survives_legacy_and_fuse_segment_edits(self):
         from mod_project.layer import Layer
@@ -2653,10 +2754,6 @@ class PackageVersionTests(unittest.TestCase):
         project_source = (
             runtime / "Hrogers.SignalRuntime.csproj"
         ).read_text(encoding="utf-8")
-        signal_schema = json.loads(
-            (runtime / "train-signals.schema.json").read_text(
-                encoding="utf-8")
-        )
         panel_source = (
             root / "TileEditorBridge" / "TileEditorTrainSignalPanel.cs"
         ).read_text(encoding="utf-8")
@@ -2671,12 +2768,11 @@ class PackageVersionTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('"train-signals.json"', registry_source)
-        self.assertIn("train-signals.schema.json", project_source)
-        self.assertEqual(signal_schema["properties"]["formatVersion"]["const"], 1)
-        self.assertEqual(
-            signal_schema["properties"]["signals"]["items"]["properties"]
-            ["headCount"]["maximum"],
-            3,
+        self.assertIn("HeadCount = Mathf.Clamp(", registry_source)
+        self.assertIn('entry["headCount"]', registry_source)
+        self.assertIn(
+            'entry["headCount"] = Mathf.Clamp(signal.HeadCount, 1, 3);',
+            session_source,
         )
         self.assertIn("Signal BR-E Main", registry_source)
         self.assertIn("Signal BR-E Enter", registry_source)
@@ -2809,6 +2905,37 @@ class PackageVersionTests(unittest.TestCase):
         self.assertIn('AddCtcTerritoryMember("blockIds", id)', session_source)
         self.assertIn('SignalRuntimePackageId = "AITraffic"', package_support)
         self.assertIn("EnsureSignalRuntimeRequirement();", session_source)
+        save_ctc = session_source.split(
+            "private void SaveCtcDocument()", 1
+        )[1].split(
+            "private void ResetCtcSession()", 1
+        )[0]
+        undo_ctc = session_source.split(
+            "internal void UndoCtc()", 1
+        )[1].split(
+            "private void ExecuteCtcEdit", 1
+        )[0]
+        train_signal_source = (
+            bridge / "TileEditorTrainSignalSession.cs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ctc-system.json will still be saved", save_ctc)
+        self.assertIn("WritePackageManifestAtomically(_ctcPath", save_ctc)
+        self.assertIn("_ctcUndo.Push(previous);", undo_ctc)
+        self.assertIn("_ctcRedo.Push(next);", undo_ctc)
+        self.assertIn("catch", undo_ctc)
+        self.assertIn(
+            "WritePackageManifestAtomically(\n                _trainSignalsPath",
+            train_signal_source,
+        )
+        train_undo = train_signal_source.split(
+            "internal void UndoTrainSignal()", 1
+        )[1].split("internal void ShowSelectedTrainSignal()", 1)[0]
+        self.assertIn("_trainSignalUndo.Push(previous);", train_undo)
+        self.assertIn("_trainSignalRedo.Push(next);", train_undo)
+        self.assertIn("_selectedTrainSignalId = selected;", train_undo)
+        self.assertIn('path + ".tile-editor.previous"', package_support)
+        self.assertIn("File.Move(path, aside);", package_support)
+        self.assertIn("File.Move(aside, path);", package_support)
         self.assertIn("CreateCtcControlPointFromSelectedNode", session_source)
         self.assertIn("CreateCtcBlockFromSelectedSegment", session_source)
         self.assertIn("AddSelectedSegmentToCtcBlock", session_source)
@@ -2950,6 +3077,11 @@ class NativeServiceFacilityContractTests(unittest.TestCase):
         self.assertIn('"scenery://" + identifier', native_identifier)
         self.assertIn('entry.Remove("modelIdentifier")', native_identifier)
         self.assertIn('entry["modelIdentifier"]', native_identifier)
+        self.assertIn(
+            "if (!(property.Value.DeepClone() is JObject migrated))",
+            native_container,
+        )
+        self.assertIn("string.IsNullOrWhiteSpace(identifier)", native_container)
 
     def test_toolshed_custom_loader_is_one_undoable_native_action(self):
         root = Path(__file__).resolve().parent.parent
@@ -3154,6 +3286,15 @@ class NativeServiceFacilityContractTests(unittest.TestCase):
         self.assertIn('["suppressBaseWorld"] = true', creator)
         self.assertIn('Path.Combine(mapFolder, "Map.json")', creator)
         self.assertIn('["tileDimension"] = 500d', creator)
+        self.assertIn('["NotBefore"] = "1.0.6"', creator)
+        self.assertIn("Path.GetDirectoryName(modFolder)", creator)
+        validator = session.split(
+            "private static bool IsPortableModId", 1
+        )[1].split(
+            "internal SelectionInfo SelectedNode", 1
+        )[0]
+        self.assertIn("value[0] == '.'", validator)
+        self.assertIn("value[value.Length - 1] == '.'", validator)
         self.assertIn('"Stock-map add-on"', panel)
         self.assertIn('"Standalone map"', panel)
         self.assertIn("Launch the new map from the main menu", panel)
@@ -3187,6 +3328,9 @@ class NativeServiceFacilityContractTests(unittest.TestCase):
         session = (
             root / "TileEditorBridge" / "TileEditorWaterSession.cs"
         ).read_text(encoding="utf-8")
+        graph = (
+            root / "TileEditorBridge" / "TileEditorGraphSession.cs"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("PanelTab.Water", geo)
         self.assertIn('"WATER"', geo)
@@ -3198,7 +3342,61 @@ class NativeServiceFacilityContractTests(unittest.TestCase):
         self.assertIn("ReplaceBaseLake", session)
         self.assertIn("_baseLakeOriginalActiveStates", session)
         self.assertIn("IsScenePathSuppressedByFuse", session)
+        set_point = panel.split(
+            'if (GUILayout.Button("SET POINT"))', 1
+        )[1].split(
+            'if (GUILayout.Button("ADD AFTER"))', 1
+        )[0]
+        self.assertIn(
+            'RunGameAction("Updated water boundary point"',
+            set_point,
+        )
+        self.assertIn('ParseFloat(_waterPointX', set_point)
+        reset = session.split(
+            "private void ResetWaterSession()", 1
+        )[1].split(
+            "private void SyncWaterSurfacesAfterDocumentRestore()", 1
+        )[0]
+        sync = session.split(
+            "private void SyncWaterSurfacesAfterDocumentRestore()", 1
+        )[1].split(
+            "private void SyncEditorHiddenBaseLakes", 1
+        )[0]
+        open_graph = graph.split(
+            "internal void OpenGraph(string path)", 1
+        )[1].split(
+            "internal void SelectNode(TrackNode node)", 1
+        )[0]
+        self.assertIn("RestoreOriginalRuntimeWaterSurface", reset)
+        self.assertIn("SyncEditorHiddenBaseLakes(Array.Empty", reset)
+        self.assertNotIn("_baseLakeOriginalActiveStates.Clear", reset)
+        self.assertIn("ResetWaterSession();", sync)
+        self.assertIn("CaptureOriginalRuntimeWaterSurface", session)
+        self.assertIn("_originalRuntimeWaterSurfaceDefinitions", session)
+        self.assertLess(
+            open_graph.index("ResetWaterSession();"),
+            open_graph.index("_document = document;"),
+        )
+        self.assertGreater(
+            open_graph.index("SyncWaterSurfacesAfterDocumentRestore();"),
+            open_graph.index("_document = document;"),
+        )
         self.assertIn("SyncEditorHiddenBaseLakes(current)", session)
+        self.assertRegex(
+            session,
+            r'\.Where\(path => IsStringArrayValue\(\s*'
+            r'"suppressBaseScenePaths",\s*path\)\)',
+        )
+        update = session.split(
+            "internal string UpdateWaterSurface(WaterSurfaceInfo info)", 1
+        )[1].split("internal string DeleteWaterSurface", 1)[0]
+        self.assertIn("existingSourcePath", update)
+        self.assertRegex(
+            update,
+            r'IsStringArrayValue\(\s*"suppressBaseScenePaths",\s*'
+            r'existingSourcePath\)',
+        )
+        self.assertIn("source path cannot be changed", update)
 
     def test_desktop_editor_throttles_unchanged_whole_map_redraws(self):
         root = Path(__file__).resolve().parent.parent

@@ -450,7 +450,8 @@ def load_set(layer: 'Layer', load_id: str,
 
     Matches SerializedLoad (StrangeCustoms/Tracks/SerializedLoad.cs) exactly:
       description          -- display name
-      units                -- LoadUnits enum string, e.g. 'Ton', 'CubicFoot', 'Each'
+      units                -- LoadUnits enum string. Native FUSE layers accept
+                              Pounds, Gallons, or Quantity ('Each' maps to Quantity).
       density              -- mass per unit volume
       unit_weight_in_pounds
       importable           -- whether the load can be imported
@@ -844,7 +845,7 @@ def turntable_set(layer: 'Layer', spliney_id: str,
             turntables[spliney_id].pop('roundhouse')
     else:
         layer.raw_collection('splineys', create=True)[spliney_id] = entry
-    layer.splineys[spliney_id] = _copy.deepcopy(entry)
+        layer.splineys[spliney_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
 

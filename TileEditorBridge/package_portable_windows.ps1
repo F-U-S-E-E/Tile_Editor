@@ -82,6 +82,9 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "[3/6] Assembling the portable mod package..."
 New-Item -ItemType Directory -Path $portableStage -Force | Out-Null
 Copy-Item -Path (Join-Path $baseStage "*") -Destination $portableStage -Recurse -Force
+if (!(Test-Path -LiteralPath (Join-Path $portableStage "LICENSE") -PathType Leaf)) {
+    throw "The base release is missing the repository LICENSE."
+}
 Copy-Item -LiteralPath (Join-Path $sourceDir "Launch Tile Editor.bat") `
     -Destination (Join-Path $portableStage "Launch Tile Editor.bat") -Force
 $runtimeDir = Join-Path $portableStage "TileEditor\PortableRuntime"
@@ -177,6 +180,9 @@ $checksumLines = Get-ChildItem -LiteralPath $portableStage -Recurse -File |
         "$hash  $relative"
     }
 $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding ASCII
+if (!($checksumLines -match '  LICENSE$')) {
+    throw "Portable checksums must include LICENSE."
+}
 
 Write-Host "[6/6] Creating the downloadable zip..."
 New-ForwardSlashZip -SourceDirectory $portableStage -DestinationPath $zipPath

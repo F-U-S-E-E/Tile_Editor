@@ -741,31 +741,25 @@ namespace Hrogers.TileEditorBridge
                 foreach (var property in misplacedScenery.Properties().ToArray())
                 {
                     var targetId = property.Name;
-                    var migrated = property.Value.DeepClone() as JObject;
-                    if (migrated != null)
-                    {
-                        WriteSceneryAssetIdentifier(
-                            migrated,
-                            (string)(migrated["assetIdentifier"]
-                                     ?? migrated["modelIdentifier"]
-                                     ?? migrated["model"])
-                            ?? string.Empty,
-                            true);
-                    }
+                    if (!(property.Value.DeepClone() is JObject migrated))
+                        continue;
+                    var identifier = (string)(migrated["assetIdentifier"]
+                                              ?? migrated["modelIdentifier"]
+                                              ?? migrated["model"]);
+                    if (string.IsNullOrWhiteSpace(identifier))
+                        continue;
+                    WriteSceneryAssetIdentifier(migrated, identifier, true);
                     if (nativeScenery[targetId] != null
                         && !JToken.DeepEquals(
                             nativeScenery[targetId],
-                            (JToken)migrated ?? property.Value))
+                            migrated))
                     {
                         targetId = NextMigratedSceneryId(
                             nativeScenery,
                             targetId);
                     }
                     if (nativeScenery[targetId] == null)
-                    {
-                        nativeScenery[targetId] =
-                            (JToken)migrated ?? property.Value.DeepClone();
-                    }
+                        nativeScenery[targetId] = migrated;
                 }
                 document.Remove("scenery");
                 migratedLegacyRoot = true;

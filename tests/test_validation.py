@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from mod_project import ModProject
-from mod_project.validation import validate_mod
+from mod_project.validation import export_clean_zip, validate_mod
 
 
 class NativeOperationsValidationTests(unittest.TestCase):
@@ -20,6 +20,26 @@ class NativeOperationsValidationTests(unittest.TestCase):
             map_origin_lon=-80.0 if complete_map else None,
         )
         return folder
+
+    def test_unsafe_manifest_id_is_an_error_and_cannot_be_exported(self):
+        for index, unsafe_id in enumerate((".", "..", "...", ".Leading", "Trailing.")):
+            with self.subTest(mod_id=unsafe_id), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                folder = self._new_native(root)
+                info_path = folder / "Info.json"
+                info = json.loads(info_path.read_text(encoding="utf-8"))
+                info["Id"] = unsafe_id
+                info_path.write_text(json.dumps(info, indent=2), encoding="utf-8")
+
+                errors = [
+                    message for severity, message in validate_mod(folder)
+                    if severity == "error"
+                ]
+                archive = root / f"unsafe-{index}.zip"
+
+                self.assertTrue(any("start and end" in message for message in errors))
+                self.assertFalse(export_clean_zip(folder, archive))
+                self.assertFalse(archive.exists())
 
     @staticmethod
     def _write_valid_operations(folder: Path):
@@ -98,6 +118,12 @@ class NativeOperationsValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             folder = self._new_native(Path(temp_dir))
             self._write_valid_operations(folder)
+            path = folder / "map.fuse.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["operations"]["stations"]["agent-a"][
+                "passengerStopId"
+            ] = "STOP-A"
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
             issues = validate_mod(folder)
 

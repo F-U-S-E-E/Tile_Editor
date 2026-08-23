@@ -19,7 +19,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $WikiUrl = 'https://github.com/Hrogers-Rog/Tile_Editor.wiki.git',
+    [string] $Repository = 'F-U-S-E-E/Tile_Editor',
+    [string] $WikiUrl = '',
     [string] $WorkDir = (Join-Path $env:TEMP 'tile-editor-wiki-sync'),
     [switch] $DryRun
 )
@@ -28,7 +29,24 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $docsDir = Join-Path $repoRoot 'docs'
-$blobBase = 'https://github.com/Hrogers-Rog/Tile_Editor/blob/main'
+if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+    throw 'Repository must use the GitHub owner/name form.'
+}
+$repositoryOwner = $Repository.Split('/')[0]
+$repositoryBase = "https://github.com/$Repository"
+$ownerBase = "https://github.com/$repositoryOwner"
+$blobBase = "$repositoryBase/blob/main"
+if ([string]::IsNullOrWhiteSpace($WikiUrl)) {
+    $WikiUrl = "$repositoryBase.wiki.git"
+}
+$parsedWikiUrl = $null
+if ((![Uri]::TryCreate(
+        $WikiUrl,
+        [UriKind]::Absolute,
+        [ref]$parsedWikiUrl)) -or
+    ![string]::IsNullOrWhiteSpace($parsedWikiUrl.UserInfo)) {
+    throw 'WikiUrl must be an absolute URL without embedded credentials.'
+}
 
 # docs/ file -> wiki page name. Order drives the sidebar.
 $pageMap = [ordered]@{
@@ -67,6 +85,17 @@ function Convert-Links {
         else { "]($blobBase/docs/$file$anchor)" }
     })
 
+    # Keep generated pages within the selected organization even when an old
+    # source page still contains a pre-transfer GitHub owner.
+    $Text = [regex]::Replace(
+        $Text,
+        'https://github\.com/[^/\s)]+/(Tile_Editor|FuseDevelopmentGroup|Narrow_Gauge|TheToolShed)',
+        {
+            param($m)
+            if ($m.Groups[1].Value -eq 'Tile_Editor') { $repositoryBase }
+            else { "$ownerBase/$($m.Groups[1].Value)" }
+        })
+
     return $Text
 }
 
@@ -81,7 +110,7 @@ else {
     Write-Host "Cloning wiki into $WorkDir"
     git clone --quiet $WikiUrl $WorkDir
     if ($LASTEXITCODE -ne 0) {
-        throw "Could not clone $WikiUrl. Create the wiki first by adding one page through the GitHub UI - GitHub does not create the wiki repo until it has a page."
+        throw "Could not clone the wiki repository. Create the wiki first by adding one page through the GitHub UI - GitHub does not create the wiki repo until it has a page."
     }
 }
 
@@ -145,14 +174,14 @@ Players install the small runtime; you ship the JSON inside your map mod.
 
 ## Related projects
 
-- [FUSE](https://github.com/F-U-S-E-E/FuseDevelopmentGroup) - the modding layer
-- [FUSE Narrow Gauge](https://github.com/Hrogers-Rog/Narrow_Gauge) - narrow and dual-gauge rendering
-- [Toolshed](https://github.com/Hrogers-Rog/TheToolShed) - service facilities and operations
+- [FUSE]($ownerBase/FuseDevelopmentGroup) - the modding layer
+- [FUSE Narrow Gauge]($ownerBase/Narrow_Gauge) - narrow and dual-gauge rendering
+- [Toolshed]($ownerBase/TheToolShed) - service facilities and operations
 
 ## Project
 
-- [Repository](https://github.com/Hrogers-Rog/Tile_Editor)
-- [Issues](https://github.com/Hrogers-Rog/Tile_Editor/issues)
+- [Repository]($repositoryBase)
+- [Issues]($repositoryBase/issues)
 
 ---
 

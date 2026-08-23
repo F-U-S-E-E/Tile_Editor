@@ -69,7 +69,8 @@ try:
                               generate_wye,
                               move_group,
                               mandela_set, mandela_delete, next_mandela_id,
-                              validate_mod, export_clean_zip)
+                              validate_mod, export_clean_zip,
+                              is_portable_mod_id)
     _MOD_AVAILABLE = True
 except ImportError:
     _MOD_AVAILABLE = False
@@ -3818,9 +3819,10 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
             if mod_id is None:
                 return
             mod_id = mod_id.strip()
-            if not mod_id or not re.fullmatch(r"[A-Za-z0-9_.]+", mod_id):
+            if not is_portable_mod_id(mod_id):
                 self._set_status(
-                    "Mod ID must use only letters, numbers, underscores, and dots"
+                    "Mod ID must start and end with a letter, number, or "
+                    "underscore; internal characters may also include dots"
                 )
                 return
             mod_name = ask_string(
@@ -3917,7 +3919,10 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
             )
             if not parent:
                 return
-            target = Path(parent) / mod_id
+            parent_path = Path(parent).resolve()
+            target = (parent_path / mod_id).resolve()
+            if target.parent != parent_path:
+                raise ValueError("Mod ID must create one folder below the selected parent")
             file_summary = (
                 (
                     "Info.json + map.fuse.json + Map/Map.json"

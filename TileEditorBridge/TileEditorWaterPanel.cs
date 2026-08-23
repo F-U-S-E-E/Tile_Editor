@@ -186,10 +186,14 @@ namespace Hrogers.TileEditorBridge
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("SET POINT"))
                 {
-                    _waterEditingPoints[_waterPointIndex] = new Vector3(
-                        ParseFloat(_waterPointX, "water point X"),
-                        ParseFloat(_waterPointY, "water point Y"),
-                        ParseFloat(_waterPointZ, "water point Z"));
+                    var pointIndex = _waterPointIndex;
+                    RunGameAction("Updated water boundary point", () =>
+                    {
+                        _waterEditingPoints[pointIndex] = new Vector3(
+                            ParseFloat(_waterPointX, "water point X"),
+                            ParseFloat(_waterPointY, "water point Y"),
+                            ParseFloat(_waterPointZ, "water point Z"));
+                    });
                 }
                 if (GUILayout.Button("ADD AFTER"))
                 {

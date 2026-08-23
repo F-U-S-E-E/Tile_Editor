@@ -21,6 +21,7 @@ from mod_project import (
     mandela_set,
     scenery_set,
     spliney_add_road,
+    turntable_set,
     generate_turnout,
     generate_wye,
     turnout_leg_pose,
@@ -112,7 +113,7 @@ class TrackLayingTests(unittest.TestCase):
             )
             self.assertEqual(
                 project.definition["Requirements"],
-                [{"Id": "FUSE", "NotBefore": "1.0.0"}],
+                [{"Id": "FUSE", "NotBefore": "1.0.6"}],
             )
             self.assertEqual(project.get_graph_layer().track_schema, "fuse")
 
@@ -259,6 +260,35 @@ class TrackLayingTests(unittest.TestCase):
 
             assert_fuse_schema_valid(self, saved)
 
+    def test_native_turntable_is_not_registered_as_a_spliney(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = ModProject.new_mod(
+                Path(temp_dir) / "NativeTurntable",
+                "Tests.NativeTurntable",
+                "Native Turntable",
+                loader="fuse",
+            )
+            graph = project.get_graph_layer()
+
+            turntable_set(graph, "turntable.test", 10, 2, 20, rot_y=45)
+
+            self.assertNotIn("turntable.test", graph.splineys)
+            self.assertIn(
+                "turntable.test",
+                graph.raw_collection("turntables"),
+            )
+            graph.save()
+            saved = json.loads(graph.path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "turntable.test",
+                saved["operations"]["turntables"],
+            )
+            self.assertNotIn(
+                "turntable.test",
+                saved.get("world", {}).get("splineys", {}),
+            )
+            assert_fuse_schema_valid(self, saved)
+
     def test_native_desktop_towns_split_tracks_and_operations(self):
         from mod_project import Area
 
@@ -363,12 +393,14 @@ class TrackLayingTests(unittest.TestCase):
     def test_new_mod_rejects_invalid_id_and_non_empty_target(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with self.assertRaises(ValueError):
-                ModProject.new_mod(
-                    root / "Invalid",
-                    "Invalid Mod-ID",
-                    "Invalid",
-                )
+            for index, invalid_id in enumerate((
+                    "Invalid Mod-ID", ".", "..", "...", ".Leading", "Trailing.")):
+                with self.subTest(mod_id=invalid_id), self.assertRaises(ValueError):
+                    ModProject.new_mod(
+                        root / f"Invalid-{index}",
+                        invalid_id,
+                        "Invalid",
+                    )
 
             occupied = root / "Occupied"
             occupied.mkdir()

@@ -36,6 +36,8 @@ namespace Hrogers.TileEditorBridge
 
         private readonly HashSet<string> _editorAppliedWaterSurfaceIds =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, object> _originalRuntimeWaterSurfaceDefinitions =
+            new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, bool> _baseLakeOriginalActiveStates =
             new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyList<WaterSurfaceInfo> _waterSurfacesCache;
@@ -151,8 +153,27 @@ namespace Hrogers.TileEditorBridge
             ExecuteOperationsEdit("Update water surface", () =>
             {
                 var surfaces = EnsureWaterSurfacesObject();
-                if (surfaces[info.Id] == null)
+                if (!(surfaces[info.Id] is JObject existing))
                     throw new InvalidOperationException($"Water surface '{info.Id}' was not found in this package.");
+                var existingSourcePath =
+                    ((string)existing["sourceLakePath"] ?? string.Empty).Trim();
+                var nextSourcePath = (info.SourceLakePath ?? string.Empty).Trim();
+                // sourceLakePath alone only borrows the lake's profile and
+                // material. An explicit suppression means this surface was
+                // created as a replacement, whose source cannot be retargeted
+                // without leaving the old base lake suppressed.
+                if (!string.Equals(
+                        existingSourcePath,
+                        nextSourcePath,
+                        StringComparison.OrdinalIgnoreCase)
+                    && IsStringArrayValue(
+                        "suppressBaseScenePaths",
+                        existingSourcePath))
+                {
+                    throw new InvalidOperationException(
+                        "A replaced base lake's source path cannot be changed. "
+                        + "Delete it and use Replace Base Lake for the new source.");
+                }
                 surfaces[info.Id] = WriteWaterSurface(info);
                 ApplyRuntimeWaterSurface(info);
                 InvalidateWaterCaches();
@@ -172,8 +193,11 @@ namespace Hrogers.TileEditorBridge
                     throw new InvalidOperationException($"Water surface '{id}' was not found in this package.");
                 var sourcePath = ((string)entry["sourceLakePath"] ?? string.Empty).Trim();
                 surfaces.Property(id)?.Remove();
-                TryRemoveRuntimeWaterSurface(id);
-                _editorAppliedWaterSurfaceIds.Remove(id);
+                if (CaptureOriginalRuntimeWaterSurface(id))
+                {
+                    RemoveRuntimeWaterSurfaceForEditor(id);
+                    _editorAppliedWaterSurfaceIds.Add(id);
+                }
                 if (!string.IsNullOrWhiteSpace(sourcePath)
                     && !surfaces.Properties().Any(property => string.Equals(
                         (string)property.Value?["sourceLakePath"],
@@ -190,41 +214,86 @@ namespace Hrogers.TileEditorBridge
 
         private void ResetWaterSession()
         {
-            _editorAppliedWaterSurfaceIds.Clear();
-            _baseLakeOriginalActiveStates.Clear();
-            _waterSurfacesCache = null;
-            _baseLakesCache = null;
+            var failures = new List<string>();
+            foreach (var id in _editorAppliedWaterSurfaceIds.ToArray())
+            {
+                try
+                {
+                    RestoreOriginalRuntimeWaterSurface(id);
+                    _editorAppliedWaterSurfaceIds.Remove(id);
+                    _originalRuntimeWaterSurfaceDefinitions.Remove(id);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(id + ": " + (ex.InnerException?.Message ?? ex.Message));
+                }
+            }
+            SyncEditorHiddenBaseLakes(Array.Empty<WaterSurfaceInfo>());
+            InvalidateWaterCaches();
+            if (failures.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "Could not restore the previous live water state: "
+                    + string.Join("; ", failures));
+            }
         }
 
         private void SyncWaterSurfacesAfterDocumentRestore()
         {
             if (!_fuseNativeDocument || _document == null)
                 return;
-            InvalidateWaterCaches();
-            var current = WaterSurfaces;
-            var currentIds = new HashSet<string>(
-                current.Select(info => info.Id),
-                StringComparer.OrdinalIgnoreCase);
-            foreach (var id in _editorAppliedWaterSurfaceIds.ToArray())
+            try
             {
-                if (!currentIds.Contains(id))
+                InvalidateWaterCaches();
+                var current = WaterSurfaces;
+                var currentIds = new HashSet<string>(
+                    current.Select(info => info.Id),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var id in _editorAppliedWaterSurfaceIds.ToArray())
                 {
-                    TryRemoveRuntimeWaterSurface(id);
-                    _editorAppliedWaterSurfaceIds.Remove(id);
+                    if (!currentIds.Contains(id))
+                        RemoveRuntimeWaterSurfaceForEditor(id);
                 }
+                foreach (var info in current)
+                    ApplyRuntimeWaterSurface(info);
+                SyncEditorHiddenBaseLakes(current);
             }
-            foreach (var info in current)
-                ApplyRuntimeWaterSurface(info);
-            SyncEditorHiddenBaseLakes(current);
+            catch
+            {
+                try
+                {
+                    ResetWaterSession();
+                }
+                catch (Exception rollbackError)
+                {
+                    _logger?.Warning(
+                        "Could not completely roll back live water after sync failed: "
+                        + rollbackError.Message);
+                }
+                throw;
+            }
         }
 
         private void SyncEditorHiddenBaseLakes(IReadOnlyList<WaterSurfaceInfo> current)
         {
+            // A material-source lake stays visible. Only an explicit package
+            // suppression identifies a base lake replaced by editor water.
             var sourcePaths = new HashSet<string>(
                 (current ?? Array.Empty<WaterSurfaceInfo>())
-                    .Select(info => info?.SourceLakePath)
-                    .Where(path => !string.IsNullOrWhiteSpace(path)),
+                    .Select(info => (info?.SourceLakePath ?? string.Empty).Trim())
+                    .Where(path => IsStringArrayValue(
+                        "suppressBaseScenePaths",
+                        path)),
                 StringComparer.OrdinalIgnoreCase);
+            foreach (var path in sourcePaths)
+            {
+                var sourceObject = FindGameObjectByPath(path);
+                if (sourceObject == null)
+                    continue;
+                if (!_baseLakeOriginalActiveStates.ContainsKey(path))
+                    _baseLakeOriginalActiveStates[path] = sourceObject.activeSelf;
+                sourceObject.SetActive(false);
+            }
             foreach (var path in _baseLakeOriginalActiveStates.Keys.ToArray())
             {
                 if (sourcePaths.Contains(path))
@@ -371,6 +440,16 @@ namespace Hrogers.TileEditorBridge
                 token.Remove();
         }
 
+        private bool IsStringArrayValue(string key, string value)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                   && _document?["world"]?[key] is JArray values
+                   && values.Values<string>().Any(existing => string.Equals(
+                       existing,
+                       value,
+                       StringComparison.OrdinalIgnoreCase));
+        }
+
         private static void ValidateWaterSurface(WaterSurfaceInfo info)
         {
             if (info.Points == null || info.Points.Length < 3)
@@ -437,26 +516,132 @@ namespace Hrogers.TileEditorBridge
             if (get == null)
                 throw new InvalidOperationException("The installed FUSE water runtime is missing its lookup API.");
             var exists = get.Invoke(null, new object[] { info.Id }) != null;
+            CaptureOriginalRuntimeWaterSurface(info.Id, apiType, exists);
             var method = apiType.GetMethod(
                 exists ? "UpdateWaterSurface" : "AddWaterSurface",
                 BindingFlags.Public | BindingFlags.Static);
             if (method == null)
                 throw new InvalidOperationException("The installed FUSE water runtime is missing its add/update API.");
-            method.Invoke(null, new[] { (object)info.Id, definition });
             _editorAppliedWaterSurfaceIds.Add(info.Id);
+            try
+            {
+                method.Invoke(null, new[] { (object)info.Id, definition });
+            }
+            catch
+            {
+                try
+                {
+                    RestoreOriginalRuntimeWaterSurface(info.Id);
+                    _editorAppliedWaterSurfaceIds.Remove(info.Id);
+                    _originalRuntimeWaterSurfaceDefinitions.Remove(info.Id);
+                }
+                catch (Exception rollbackError)
+                {
+                    _logger?.Warning(
+                        "Could not roll back live water surface '" + info.Id
+                        + "' after its update failed: " + rollbackError.Message);
+                }
+                throw;
+            }
         }
 
-        private void TryRemoveRuntimeWaterSurface(string id)
+        private bool CaptureOriginalRuntimeWaterSurface(string id)
+        {
+            if (_editorAppliedWaterSurfaceIds.Contains(id))
+                return true;
+            var apiType = FindLoadedType("FUSE.Runtime.API.WaterSurfaceAPI");
+            var get = apiType?.GetMethod(
+                "GetWaterSurface",
+                BindingFlags.Public | BindingFlags.Static);
+            if (apiType == null || get == null)
+                return false;
+            var exists = get.Invoke(null, new object[] { id }) != null;
+            CaptureOriginalRuntimeWaterSurface(id, apiType, exists);
+            return true;
+        }
+
+        private void CaptureOriginalRuntimeWaterSurface(
+            string id,
+            Type apiType,
+            bool exists)
+        {
+            if (_editorAppliedWaterSurfaceIds.Contains(id)
+                || _originalRuntimeWaterSurfaceDefinitions.ContainsKey(id))
+            {
+                return;
+            }
+            object original = null;
+            if (exists)
+            {
+                var getDefinition = apiType.GetMethod(
+                    "GetWaterSurfaceDefinition",
+                    BindingFlags.Public | BindingFlags.Static);
+                if (getDefinition == null)
+                {
+                    throw new InvalidOperationException(
+                        "The installed FUSE water runtime cannot snapshot an existing surface.");
+                }
+                original = getDefinition.Invoke(null, new object[] { id });
+                if (original == null)
+                {
+                    throw new InvalidOperationException(
+                        "The existing FUSE water surface '" + id + "' could not be snapshotted.");
+                }
+            }
+            _originalRuntimeWaterSurfaceDefinitions[id] = original;
+        }
+
+        private void RestoreOriginalRuntimeWaterSurface(string id)
+        {
+            var apiType = FindLoadedType("FUSE.Runtime.API.WaterSurfaceAPI")
+                ?? throw new InvalidOperationException("The FUSE water runtime is unavailable.");
+            var get = apiType.GetMethod(
+                "GetWaterSurface",
+                BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("The FUSE water lookup API is unavailable.");
+            _originalRuntimeWaterSurfaceDefinitions.TryGetValue(id, out var original);
+            if (original == null)
+            {
+                RemoveRuntimeWaterSurfaceForEditor(id);
+                return;
+            }
+            var exists = get.Invoke(null, new object[] { id }) != null;
+            var restore = apiType.GetMethod(
+                exists ? "UpdateWaterSurface" : "AddWaterSurface",
+                BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("The FUSE water restore API is unavailable.");
+            restore.Invoke(null, new[] { (object)id, original });
+        }
+
+        private void RemoveRuntimeWaterSurfaceForEditor(string id)
+        {
+            var apiType = FindLoadedType("FUSE.Runtime.API.WaterSurfaceAPI");
+            var get = apiType?.GetMethod(
+                "GetWaterSurface",
+                BindingFlags.Public | BindingFlags.Static);
+            if (apiType == null || get == null)
+                return;
+            if (get.Invoke(null, new object[] { id }) != null
+                && !TryRemoveRuntimeWaterSurface(id))
+            {
+                throw new InvalidOperationException(
+                    "The live water surface '" + id + "' could not be removed.");
+            }
+        }
+
+        private bool TryRemoveRuntimeWaterSurface(string id)
         {
             try
             {
-                FindLoadedType("FUSE.Runtime.API.WaterSurfaceAPI")
+                var result = FindLoadedType("FUSE.Runtime.API.WaterSurfaceAPI")
                     ?.GetMethod("TryRemoveWaterSurface", BindingFlags.Public | BindingFlags.Static)
                     ?.Invoke(null, new object[] { id });
+                return result is bool removed && removed;
             }
             catch (TargetInvocationException ex)
             {
                 _logger?.Warning("Could not remove live water surface '" + id + "': " + (ex.InnerException?.Message ?? ex.Message));
+                return false;
             }
         }
 

@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 
 from .layer import _load_json
-from .project import ModProject
+from .project import ModProject, is_portable_mod_id
 
 
 def validate_mod(folder: Path) -> list:
@@ -19,7 +19,7 @@ def validate_mod(folder: Path) -> list:
 
     Checks (sourced from ModDefinition.Validate() and game source):
       - Definition.json: exists, parses, has id/name/version
-      - ID regex ^[A-Za-z0-9_.]+$ (D3)
+      - portable ID uses ASCII letters, numbers, underscores, and internal dots
       - Manifest version 0 < v <= 8 (D4)
       - updateUrl must be https:// if present
       - All file() mixinto references exist on disk
@@ -55,8 +55,11 @@ def validate_mod(folder: Path) -> list:
             err("Info.json missing required field(s): Id, DisplayName, Version")
         if str(mod_id).lower() in ('railloader', 'railroader', 'fuse'):
             err(f"ID '{mod_id}' is reserved")
-        if mod_id and not _re.match(r'^[A-Za-z0-9_.]+$', mod_id):
-            warn(f"Id '{mod_id}' contains chars outside [A-Za-z0-9_.] -- not valid")
+        if mod_id and not is_portable_mod_id(mod_id):
+            err(
+                f"Id '{mod_id}' must start and end with a letter, number, "
+                "or underscore and use only [A-Za-z0-9_.]"
+            )
         entry_method = defn.get('EntryMethod', '')
         if defn.get('AssemblyName') and not entry_method:
             warn("Info.json has AssemblyName but no EntryMethod")
@@ -87,8 +90,11 @@ def validate_mod(folder: Path) -> list:
             err("Definition.json missing required field(s): id, name, version")
         if str(mod_id).lower() in ('railloader', 'railroader', 'fuse'):
             err(f"ID '{mod_id}' is reserved")
-        if mod_id and not _re.match(r'^[A-Za-z0-9_.]+$', mod_id):
-            warn(f"ID '{mod_id}' contains chars outside [A-Za-z0-9_.] -- deprecated")
+        if mod_id and not is_portable_mod_id(mod_id):
+            err(
+                f"ID '{mod_id}' must start and end with a letter, number, "
+                "or underscore and use only [A-Za-z0-9_.]"
+            )
         mv = defn.get('manifestVersion', 0)
         if not (0 < mv <= 8):
             err(f"manifestVersion {mv} out of supported range 1-8")
@@ -1019,13 +1025,15 @@ def _validate_native_operations(proj, merged_spans, err, warn):
     _validate_passenger_network(passenger_entries, unresolved, err, warn)
 
     passenger_ids = {
-        item['stop_id'] for item in passenger_entries if item['stop_id']
+        item['stop_id'].lower()
+        for item in passenger_entries
+        if item['stop_id']
     }
     for station_id, station in station_entries:
         stop_id = str(station.get('passengerStopId') or '').strip()
         if not stop_id:
             err(f"Native station {station_id}: passengerStopId is required")
-        elif stop_id not in passenger_ids:
+        elif stop_id.lower() not in passenger_ids:
             unresolved(
                 f"Native station {station_id}: passengerStopId '{stop_id}' "
                 "is not defined in this package"
@@ -1184,6 +1192,9 @@ def export_clean_zip(folder: Path, output_path: Path):
         mod_id = _load_json(info_path).get('Id', folder.name)
     else:
         mod_id = folder.name
+    if not is_portable_mod_id(mod_id):
+        print("[export] ERROR: Refusing to use an unsafe mod ID as the ZIP root")
+        return False
     arcroot = mod_id  # top-level dir inside the zip
 
     written = 0

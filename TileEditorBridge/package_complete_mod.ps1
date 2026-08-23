@@ -117,6 +117,11 @@ foreach ($name in @(
 )) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination $stageDir
 }
+$licensePath = Join-Path $repoRoot "LICENSE"
+if (!(Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+    throw "The repository LICENSE is required in every release package."
+}
+Copy-Item -LiteralPath $licensePath -Destination (Join-Path $stageDir "LICENSE")
 
 foreach ($packageName in @("edit_tiles", "mod_project")) {
     $sourcePackage = Join-Path $repoRoot $packageName
@@ -175,6 +180,9 @@ $checksumLines = Get-ChildItem -LiteralPath $stageDir -Recurse -File |
         "$hash  $relative"
     }
 $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding ASCII
+if (!($checksumLines -match '  LICENSE$')) {
+    throw "Release checksums must include LICENSE."
+}
 
 Write-Host "[4/5] Creating versioned zip..."
 New-ForwardSlashZip -SourceDirectory $stageDir -DestinationPath $zipPath

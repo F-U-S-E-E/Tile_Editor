@@ -17,6 +17,14 @@ from .constants import (
 from .layer import Layer, _load_json, _save_json
 
 
+_PORTABLE_MOD_ID = re.compile(r'^[A-Za-z0-9_](?:[A-Za-z0-9_.]*[A-Za-z0-9_])?$')
+
+
+def is_portable_mod_id(value: str) -> bool:
+    """Return whether *value* is safe as a cross-platform mod folder name."""
+    return isinstance(value, str) and bool(_PORTABLE_MOD_ID.fullmatch(value))
+
+
 class ModProject:
     def __init__(self):
         self.name:        str          = "Untitled"
@@ -483,8 +491,8 @@ class ModProject:
                 map_tile_dimension: float = 500.0) -> 'ModProject':
         """Create a new empty mod project.
 
-        mod_id    -- must match ^[A-Za-z0-9_.]+$ (hyphens are invalid in both
-                     Railloader and UMM mod IDs)
+        mod_id    -- uses letters, numbers, underscores, and internal dots;
+                     path tokens and leading/trailing dots are invalid
         loader    -- 'compatible' (default), 'fuse', or 'umm'.
                      'compatible' / 'railloader' -- writes one legacy graph
                        package that RailLoader loads directly and FUSE imports.
@@ -496,7 +504,6 @@ class ModProject:
         Railloader-only fields (ignored when loader='umm'):
           assemblies, conflicts_with, load_before, priority, update_url
         """
-        import re as _re
         folder = Path(folder)
         loader_kind = str(loader or 'compatible').strip().lower()
         if loader_kind == 'railloader':
@@ -508,15 +515,13 @@ class ModProject:
 
         # Use the common RailLoader/UMM ID subset so either package type can
         # be selected without silently creating an invalid folder.
-        # Confirmed: Railloader ValidIdRegex = ^[A-Za-z0-9_.]+$
-        # UMM ModInfo.Id has same constraint in practice
-        _VALID_ID = _re.compile(r'^[A-Za-z0-9_.]+$')
         mod_id = str(mod_id or '').strip()
         mod_name = str(mod_name or '').strip()
         author = str(author or '').strip()
-        if not mod_id or not _VALID_ID.fullmatch(mod_id):
+        if not is_portable_mod_id(mod_id):
             raise ValueError(
-                "Mod ID must use only letters, numbers, underscores, and dots"
+                "Mod ID must start and end with a letter, number, or underscore; "
+                "internal characters may also include dots"
             )
         if mod_id.lower() in ('railloader', 'railroader', 'fuse'):
             raise ValueError(f"Mod ID '{mod_id}' is reserved")
@@ -600,7 +605,7 @@ class ModProject:
                 'ManagerVersion': '0.27.10',
                 'GameVersion': '2025.1',
                 'Requirements': [
-                    {'Id': 'FUSE', 'NotBefore': '1.0.0'},
+                    {'Id': 'FUSE', 'NotBefore': '1.0.6'},
                 ],
                 'LoadAfter': ['FUSE'],
                 'FuseLoadPriority': 100,
