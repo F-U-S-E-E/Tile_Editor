@@ -23,10 +23,10 @@ class TerrainEditingTests(unittest.TestCase):
                 description.strip(),
                 f"preset {index} has no description",
             )
-        self.assertIn("Full", VEG_NAMES[0])
-        self.assertIn("Clear", VEG_NAMES[7])
-        self.assertIn("100%", VEG_DESCRIPTIONS[0])
-        self.assertIn("0%", VEG_DESCRIPTIONS[7])
+        self.assertIn("Clear", VEG_NAMES[0])
+        self.assertIn("Full", VEG_NAMES[7])
+        self.assertIn("0%", VEG_DESCRIPTIONS[0])
+        self.assertIn("100%", VEG_DESCRIPTIONS[7])
 
     def test_fast_stroke_is_filled_at_bounded_spacing(self):
         points = interpolate_stroke_points((0, 0), (25, 0), 10)

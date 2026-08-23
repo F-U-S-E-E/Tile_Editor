@@ -60,7 +60,9 @@ namespace Hrogers.TileEditorBridge
                 }
             }
             var existingRules = _document["featureRules"] as JObject;
-            if (existingRules?[option.RuleId] != null
+            if (existingRules?.Property(
+                    option.RuleId,
+                    StringComparison.OrdinalIgnoreCase) != null
                 && !string.Equals(originalRuleId, option.RuleId, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
@@ -76,21 +78,38 @@ namespace Hrogers.TileEditorBridge
                     var settings = EnsureFeatureObject(_document, "settings");
                     var rules = EnsureFeatureObject(_document, "featureRules");
                     var oldSettingId = string.Empty;
-                    if (!string.IsNullOrWhiteSpace(originalRuleId)
-                        && rules[originalRuleId] is JObject oldRule)
+                    var oldRuleProperty = string.IsNullOrWhiteSpace(originalRuleId)
+                        ? null
+                        : rules.Property(
+                            originalRuleId,
+                            StringComparison.OrdinalIgnoreCase);
+                    if (oldRuleProperty?.Value is JObject oldRule)
                     {
                         oldSettingId = (string)oldRule["setting"] ?? string.Empty;
-                        if (!string.Equals(originalRuleId, option.RuleId, StringComparison.OrdinalIgnoreCase))
-                            rules.Remove(originalRuleId);
+                        if (!string.Equals(
+                                oldRuleProperty.Name,
+                                option.RuleId,
+                                StringComparison.Ordinal))
+                        {
+                            oldRuleProperty.Remove();
+                        }
                     }
 
+                    settings.Property(
+                        option.SettingId,
+                        StringComparison.OrdinalIgnoreCase)?.Remove();
+                    rules.Property(
+                        option.RuleId,
+                        StringComparison.OrdinalIgnoreCase)?.Remove();
                     settings[option.SettingId] = BuildSettingToken(option);
                     rules[option.RuleId] = BuildFeatureRuleToken(option);
                     if (!string.IsNullOrWhiteSpace(oldSettingId)
                         && !string.Equals(oldSettingId, option.SettingId, StringComparison.OrdinalIgnoreCase)
                         && !FeatureSettingIsReferenced(rules, oldSettingId))
                     {
-                        settings.Remove(oldSettingId);
+                        settings.Property(
+                            oldSettingId,
+                            StringComparison.OrdinalIgnoreCase)?.Remove();
                     }
                 });
             return "Saved feature option " + option.RuleId

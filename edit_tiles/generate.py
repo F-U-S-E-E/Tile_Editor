@@ -121,8 +121,8 @@ def _gen_mosaic(left_px, top_px, right_px, bottom_px, token):
 def _uses_stock_height_correction(origin_lat, origin_lon) -> bool:
     """Return whether the old Bushnell/Whittier elevation correction applies."""
     return (
-        abs(float(origin_lat) - GEN_ORIGIN_LAT) < 0.0001
-        and abs(float(origin_lon) - GEN_ORIGIN_LON) < 0.0001
+        float(origin_lat) == float(GEN_ORIGIN_LAT)
+        and float(origin_lon) == float(GEN_ORIGIN_LON)
     )
 
 

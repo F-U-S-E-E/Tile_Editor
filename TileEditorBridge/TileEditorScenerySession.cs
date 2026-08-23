@@ -741,17 +741,31 @@ namespace Hrogers.TileEditorBridge
                 foreach (var property in misplacedScenery.Properties().ToArray())
                 {
                     var targetId = property.Name;
+                    var migrated = property.Value.DeepClone() as JObject;
+                    if (migrated != null)
+                    {
+                        WriteSceneryAssetIdentifier(
+                            migrated,
+                            (string)(migrated["assetIdentifier"]
+                                     ?? migrated["modelIdentifier"]
+                                     ?? migrated["model"])
+                            ?? string.Empty,
+                            true);
+                    }
                     if (nativeScenery[targetId] != null
                         && !JToken.DeepEquals(
                             nativeScenery[targetId],
-                            property.Value))
+                            (JToken)migrated ?? property.Value))
                     {
                         targetId = NextMigratedSceneryId(
                             nativeScenery,
                             targetId);
                     }
                     if (nativeScenery[targetId] == null)
-                        nativeScenery[targetId] = property.Value.DeepClone();
+                    {
+                        nativeScenery[targetId] =
+                            (JToken)migrated ?? property.Value.DeepClone();
+                    }
                 }
                 document.Remove("scenery");
                 migratedLegacyRoot = true;

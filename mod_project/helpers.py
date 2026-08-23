@@ -30,14 +30,17 @@ def _write_spliney(layer: 'Layer', spliney_id: str, entry: dict):
 
 
 def _delete_spliney(layer: 'Layer', spliney_id: str):
-    layer.splineys.pop(spliney_id, None)
+    if layer.read_only:
+        return False
+    layer.splineys[spliney_id] = None
     raw = layer.raw_collection('splineys', create=True)
     if layer.is_fuse_native:
         raw.pop(spliney_id, None)
         layer.add_world_removal('splineys', spliney_id)
     else:
-        raw.pop(spliney_id, None)
+        raw[spliney_id] = None
     layer.dirty = True
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -466,9 +469,14 @@ def load_set(layer: 'Layer', load_id: str,
     raw = layer.raw_collection('loads', create=True)
     if layer.is_fuse_native:
         native_units = {
+            'pound': 'Pounds', 'pounds': 'Pounds',
             'gallon': 'Gallons', 'gallons': 'Gallons',
             'each': 'Quantity', 'quantity': 'Quantity',
-        }.get(str(units or '').strip().lower(), 'Pounds')
+        }.get(str(units or '').strip().lower())
+        if native_units is None:
+            raise ValueError(
+                "Native FUSE load units must be Pounds, Gallons, or Quantity"
+            )
         raw[load_id] = {
             'name': description,
             'units': native_units,
@@ -485,10 +493,25 @@ def load_set(layer: 'Layer', load_id: str,
 
 
 def load_delete(layer: 'Layer', load_id: str):
-    """Delete a load definition from a layer."""
-    layer.loads.pop(load_id, None)
-    layer.raw_collection('loads', create=True).pop(load_id, None)
+    """Delete a locally authored load definition from a layer.
+
+    FUSE 1.0.6 has no operations.removals.loads marker, so a native layer
+    cannot override a load inherited from another package.
+    """
+    if layer.read_only:
+        return False
+    raw = layer.raw_collection('loads', create=True)
+    if layer.is_fuse_native:
+        if load_id not in raw:
+            raise ValueError(
+                "FUSE 1.0.6 cannot remove a load inherited from another package"
+            )
+        raw.pop(load_id, None)
+    else:
+        raw[load_id] = None
+    layer.loads[load_id] = None
     layer.dirty = True
+    return True
 
 
 
@@ -508,7 +531,9 @@ def text_set(layer: 'Layer', text_id: str, text: str):
             existing.get('position')
             if isinstance(existing, dict) else None
         ) or {'x': 0.0, 'y': 0.0, 'z': 0.0}
-        raw[text_id] = {'text': text, 'position': position}
+        entry = _copy.deepcopy(existing) if isinstance(existing, dict) else {}
+        entry.update({'text': text, 'position': position})
+        raw[text_id] = entry
         layer.texts[text_id] = _copy.deepcopy(raw[text_id])
         layer.remove_world_removal('mapLabels', text_id)
     else:
@@ -519,11 +544,17 @@ def text_set(layer: 'Layer', text_id: str, text: str):
 
 def text_delete(layer: 'Layer', text_id: str):
     """Delete a text entry from a layer."""
-    layer.texts.pop(text_id, None)
-    layer.raw_collection('texts', create=True).pop(text_id, None)
+    if layer.read_only:
+        return False
+    layer.texts[text_id] = None
+    raw = layer.raw_collection('texts', create=True)
     if layer.is_fuse_native:
+        raw.pop(text_id, None)
         layer.add_world_removal('mapLabels', text_id)
+    else:
+        raw[text_id] = None
     layer.dirty = True
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -789,13 +820,18 @@ def turntable_set(layer: 'Layer', spliney_id: str,
         'EndPrefab':            end_prefab,
     }
     if layer.is_fuse_native:
-        operations = layer._raw.setdefault('operations', {})
-        turntables = operations.setdefault('turntables', {})
+        native_subdivisions = max(4, min(32, subdivisions))
+        if native_subdivisions != subdivisions:
+            print(
+                "[turntable_set] WARNING: native FUSE clamps subdivisions "
+                f"{subdivisions} to {native_subdivisions}"
+            )
+        turntables = layer.raw_collection('turntables', create=True)
         turntables[spliney_id] = {
             'position': entry['Position'],
             'rotation': entry['Rotation'],
             'radius': radius,
-            'subdivisions': max(4, min(32, subdivisions)),
+            'subdivisions': native_subdivisions,
             'roundhouse': ({
                 'stalls': roundhouse_stalls,
                 'trackLength': roundhouse_track_length,
@@ -824,6 +860,7 @@ def spliney_add_maplabel(layer: 'Layer', spliney_id: str,
       instead, e.g. 'YourMod.MapLabelBuilder', to remove the AlinasMapMod dependency.
 
     Schema (Position + Text) confirmed from AlinasMapMod/Definitions/SerializedMapLabel.cs.
+    Native FUSE map labels do not support the legacy ``alignment`` field.
     """
     entry = {
         'handler':   handler,
@@ -842,13 +879,13 @@ def spliney_add_maplabel(layer: 'Layer', spliney_id: str,
         layer.remove_world_removal('mapLabels', spliney_id)
     else:
         layer.raw_collection('splineys', create=True)[spliney_id] = entry
-    layer.splineys[spliney_id] = _copy.deepcopy(entry)
+        layer.splineys[spliney_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
 
 def spliney_delete(layer: 'Layer', spliney_id: str):
     """Delete a spliney from a layer."""
-    _delete_spliney(layer, spliney_id)
+    return _delete_spliney(layer, spliney_id)
 
 
 
@@ -962,15 +999,21 @@ def mandela_set(layer: 'Layer', mandela_id: str,
 
 def mandela_delete(layer: 'Layer', mandela_id: str):
     """Delete a mandela from a layer."""
-    layer.mandelas.pop(mandela_id, None)
+    if layer.read_only:
+        return False
+    layer.mandelas[mandela_id] = None
     raw = layer.raw_collection('mandelas', create=True)
     if layer.is_fuse_native:
-        key = layer.find_scene_clone_key(mandela_id)
-        if key is not None:
-            raw.pop(key, None)
+        key = (
+            layer.find_scene_clone_key(mandela_id)
+            or layer.scene_clone_id(mandela_id)
+        )
+        raw.pop(key, None)
+        layer.add_world_removal('sceneClones', key)
     else:
-        raw.pop(mandela_id, None)
+        raw[mandela_id] = None
     layer.dirty = True
+    return True
 
 
 def next_mandela_id(layer: 'Layer') -> str:

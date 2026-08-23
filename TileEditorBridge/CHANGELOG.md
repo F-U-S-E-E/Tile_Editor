@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.26.7
+
 - Adds an opt-in deferred track preview to the F9 Geo workspace. Node and
   segment edits update the yellow guide geometry immediately without repeatedly
   rebuilding Railroader track meshes, switch geometry, or dual-gauge topology.
@@ -33,8 +35,6 @@
   invalidate overview/detail/scale caches even after paste or generation;
   categorical save/reload and Railroader cache invalidation remain covered so a
   saved paint stroke cannot be silently replaced by stale editor data.
-
-## 0.26.8
 
 - Repairs the portable Signals/CTC authoring contract. New CTC documents now
   include the required `trainOrders` array; territory membership follows
@@ -109,8 +109,6 @@
   town signs and small props beside track no longer lose the click to rail mesh.
 - Clarifies native turntable bridge-track ownership and the split between FUSE
   scenery placement and Toolshed diesel/bunker-C service behavior.
-
-## 0.26.7
 
 - Keeps a failed desktop package creation error visible instead of replacing it
   with a misleading success message. Invalid IDs and occupied folders now fail

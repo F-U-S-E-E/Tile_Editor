@@ -4,6 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $sourceDir = $PSScriptRoot
+. (Join-Path $sourceDir "New-ForwardSlashZip.ps1")
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $sourceDir "..")).Path
 $version = (Get-Content -LiteralPath (Join-Path $sourceDir "VERSION.txt") -Raw).Trim()
 $packageId = "Hrogers.TileEditorBridge"
@@ -111,7 +112,9 @@ $distributionPatterns = @(
     "urllib3-*.dist-info"
 )
 foreach ($pattern in $distributionPatterns) {
-    foreach ($distribution in @(Get-ChildItem -Path (Join-Path $sitePackages $pattern) -Directory)) {
+    foreach ($distribution in @(
+            Get-ChildItem -Path (Join-Path $sitePackages $pattern) `
+                -Directory -ErrorAction SilentlyContinue)) {
         $destination = Join-Path $licenseDir $distribution.Name
         New-Item -ItemType Directory -Path $destination -Force | Out-Null
         $metadata = Join-Path $distribution.FullName "METADATA"
@@ -138,10 +141,23 @@ $privateTokens = @($repoRoot,$env:USERPROFILE) |
     Select-Object -Unique
 $privateMatches = New-Object System.Collections.Generic.List[string]
 Get-ChildItem -LiteralPath $portableStage -Recurse -File | ForEach-Object {
-    $content = [System.Text.Encoding]::ASCII.GetString(
-        [System.IO.File]::ReadAllBytes($_.FullName))
+    $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+    $decoded = @(
+        [System.Text.Encoding]::UTF8.GetString($bytes),
+        [System.Text.Encoding]::Unicode.GetString($bytes),
+        [System.Text.Encoding]::BigEndianUnicode.GetString($bytes)
+    )
     foreach ($token in $privateTokens) {
-        if ($content.IndexOf($token,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        $containsToken = $false
+        foreach ($content in $decoded) {
+            if ($content.IndexOf(
+                    $token,
+                    [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $containsToken = $true
+                break
+            }
+        }
+        if ($containsToken) {
             $relative = $_.FullName.Substring($portableStage.Length + 1)
             $privateMatches.Add("$relative -> $token")
         }
@@ -163,7 +179,7 @@ $checksumLines = Get-ChildItem -LiteralPath $portableStage -Recurse -File |
 $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding ASCII
 
 Write-Host "[6/6] Creating the downloadable zip..."
-Compress-Archive -LiteralPath $portableStage -DestinationPath $zipPath
+New-ForwardSlashZip -SourceDirectory $portableStage -DestinationPath $zipPath
 
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host ""

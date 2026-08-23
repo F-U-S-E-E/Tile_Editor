@@ -174,9 +174,9 @@ avoid the spikes a naive flatten produces.
 
 ## Saving
 
-`Ctrl+S` saves all modified tiles atomically, keeps up to three recoverable
-per-tile backups, and clears every derived render cache only after the new file
-has replaced the old one. `Ctrl+X` exports the heightmap as a PNG.
+`Ctrl+S` saves each modified tile with atomic replacement, keeps up to three
+recoverable per-tile backups, and clears every derived render cache only after
+the new file has replaced the old one. `Ctrl+X` exports the heightmap as a PNG.
 Press `D` for diff mode to see exactly which tiles are unsaved — they carry a
 yellow border.
 

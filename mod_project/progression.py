@@ -162,9 +162,12 @@ def _native_delivery_phases(phases) -> list:
             if 'load' in item and 'loadId' not in item:
                 item['loadId'] = item.pop('load')
             direction = str(item.get('direction', 'loadToIndustry')).lower()
-            if direction in ('0', 'to', 'toindustry', 'import'):
+            if direction in (
+                    '0', 'to', 'toindustry', 'import', 'loadtoindustry'):
                 item['direction'] = 'loadToIndustry'
-            elif direction in ('1', 'from', 'fromindustry', 'export'):
+            elif direction in (
+                    '1', 'from', 'fromindustry', 'export',
+                    'loadfromindustry'):
                 item['direction'] = 'loadFromIndustry'
             deliveries.append(item)
         if deliveries:

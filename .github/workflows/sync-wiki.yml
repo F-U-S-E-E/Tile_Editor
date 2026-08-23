@@ -31,9 +31,13 @@ jobs:
       - name: Verify the wiki has been initialized
         shell: pwsh
         env:
-          WIKI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIKI_TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIKI_TOKEN)) {
+            Write-Host "::error::Configure WIKI_PUSH_TOKEN with write access to the wiki repository."
+            exit 1
+          }
           $url = "https://x-access-token:$($env:WIKI_TOKEN)@github.com/$($env:REPO).wiki.git"
           git ls-remote $url | Out-Null
           if ($LASTEXITCODE -ne 0) {
@@ -50,7 +54,7 @@ jobs:
       - name: Sync docs to wiki
         shell: pwsh
         env:
-          WIKI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIKI_TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           $url = "https://x-access-token:$($env:WIKI_TOKEN)@github.com/$($env:REPO).wiki.git"

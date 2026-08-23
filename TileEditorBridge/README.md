@@ -1,4 +1,4 @@
-# Hrogers Tile Editor Suite 0.26.8
+# Hrogers Tile Editor Suite 0.26.7
 
 Hold **Shift+?** in F9 for a live pointer survey showing map/game, Unity
 world, graph-local, terrain-tile, and tile-local coordinates plus the nearest

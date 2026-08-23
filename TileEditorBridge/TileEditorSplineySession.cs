@@ -560,7 +560,9 @@ namespace Hrogers.TileEditorBridge
                         Vector3 rotation;
                         if (_selectedSplinePoint + 1 < points.Count)
                         {
-                            var next = (JObject)points[_selectedSplinePoint + 1];
+                            var next = RequireObjectLinePoint(
+                                source,
+                                _selectedSplinePoint + 1);
                             position = Vector3.Lerp(
                                 currentPosition,
                                 ReadVector(next["position"]),
@@ -762,6 +764,12 @@ namespace Hrogers.TileEditorBridge
                     "New spline endpoints must be between 2 and 2000 m apart.");
 
             var splineKind = ParseSplineKind(kind);
+            if (splineKind == SplineKind.ObjectLine)
+            {
+                throw new InvalidOperationException(
+                    "Use the repeated-object line tool; object lines require "
+                    + "an asset or prefab, spacing, and an instance limit.");
+            }
             if (splineKind != SplineKind.Trestle)
             {
                 if (string.IsNullOrWhiteSpace(profile))
@@ -2563,9 +2571,12 @@ namespace Hrogers.TileEditorBridge
                 return source.LivePath.points[index].position;
             if (source.LiveTrestle != null)
                 return source.LiveTrestle.controlPoints[index].position;
-            return SplinePointFromGame(
-                LiveSplineTransform(source),
-                ReadVector(RequireObjectLinePoint(source, index)["position"]));
+            var owner = LiveSplineTransform(source);
+            var stored = ReadVector(
+                RequireObjectLinePoint(source, index)["position"]);
+            return owner == null
+                ? stored
+                : SplinePointFromGame(owner, stored);
         }
 
         private static Vector3 SplinePointLocalRotation(
@@ -2577,27 +2588,34 @@ namespace Hrogers.TileEditorBridge
             if (source.LiveTrestle != null)
                 return source.LiveTrestle.controlPoints[index]
                     .rotation.eulerAngles;
-            return SplineRotationFromGame(
-                LiveSplineTransform(source),
-                ReadVector(RequireObjectLinePoint(source, index)["rotation"]));
+            var owner = LiveSplineTransform(source);
+            var stored = ReadVector(
+                RequireObjectLinePoint(source, index)["rotation"]);
+            return owner == null
+                ? stored
+                : SplineRotationFromGame(owner, stored);
         }
 
         private static Vector3 SplinePointPosition(
             SplineSource source,
             int index)
         {
-            return SplinePointToGame(
-                LiveSplineTransform(source),
-                SplinePointLocalPosition(source, index));
+            var owner = LiveSplineTransform(source);
+            var local = SplinePointLocalPosition(source, index);
+            return owner == null
+                ? local
+                : SplinePointToGame(owner, local);
         }
 
         private static Vector3 SplinePointRotation(
             SplineSource source,
             int index)
         {
-            return SplineRotationToGame(
-                LiveSplineTransform(source),
-                SplinePointLocalRotation(source, index));
+            var owner = LiveSplineTransform(source);
+            var local = SplinePointLocalRotation(source, index);
+            return owner == null
+                ? local
+                : SplineRotationToGame(owner, local);
         }
 
         private static float SplinePointWidth(

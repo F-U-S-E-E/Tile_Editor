@@ -199,20 +199,21 @@ namespace Hrogers.TileEditorBridge
                     _waterPointIndex++;
                     LoadWaterPointFields();
                 }
-                GUI.enabled = _waterEditingPoints.Count > 3;
+                var controlsEnabled = GUI.enabled;
+                GUI.enabled = controlsEnabled && _waterEditingPoints.Count > 3;
                 if (GUILayout.Button("REMOVE"))
                 {
                     _waterEditingPoints.RemoveAt(_waterPointIndex);
                     _waterPointIndex = Mathf.Clamp(_waterPointIndex, 0, _waterEditingPoints.Count - 1);
                     LoadWaterPointFields();
                 }
-                GUI.enabled = true;
+                GUI.enabled = controlsEnabled;
                 GUILayout.EndHorizontal();
             }
             if (GUILayout.Button("APPLY WATER CHANGES", GUILayout.Height(34f)))
             {
-                var updated = BuildWaterInfo(selected.Id);
-                RunGameAction(() => _mapEditor.UpdateWaterSurface(updated));
+                RunGameAction(() => _mapEditor.UpdateWaterSurface(
+                    BuildWaterInfo(selected.Id)));
                 _waterLoadedId = string.Empty;
             }
             var old = GUI.backgroundColor;

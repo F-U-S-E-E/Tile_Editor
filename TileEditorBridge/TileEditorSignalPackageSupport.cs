@@ -29,7 +29,18 @@ namespace Hrogers.TileEditorBridge
 
         private void EnsureUmmSignalRuntimeRequirement(string path)
         {
-            var document = JObject.Parse(File.ReadAllText(path));
+            JObject document;
+            try
+            {
+                document = JObject.Parse(File.ReadAllText(path));
+            }
+            catch (Exception exception)
+            {
+                _logger?.Warning(
+                    "Could not update Info.json with Railroad Operations "
+                    + "(AITraffic): " + exception.Message);
+                return;
+            }
             var changed = AddManifestId(
                 document,
                 "Requirements",
@@ -50,7 +61,18 @@ namespace Hrogers.TileEditorBridge
 
         private void EnsureLegacySignalRuntimeRequirement(string path)
         {
-            var document = JObject.Parse(File.ReadAllText(path));
+            JObject document;
+            try
+            {
+                document = JObject.Parse(File.ReadAllText(path));
+            }
+            catch (Exception exception)
+            {
+                _logger?.Warning(
+                    "Could not update Definition.json with Railroad Operations "
+                    + "(AITraffic): " + exception.Message);
+                return;
+            }
             var changed = AddManifestId(
                 document,
                 "requires",
@@ -126,8 +148,22 @@ namespace Hrogers.TileEditorBridge
             }
             catch
             {
-                File.Delete(path);
-                File.Move(temp, path);
+                var aside = path + ".tile-editor.previous";
+                if (File.Exists(aside))
+                    File.Delete(aside);
+                File.Move(path, aside);
+                try
+                {
+                    File.Move(temp, path);
+                    File.Delete(aside);
+                }
+                catch
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                    File.Move(aside, path);
+                    throw;
+                }
             }
         }
     }

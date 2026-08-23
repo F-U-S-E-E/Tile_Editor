@@ -288,7 +288,16 @@ namespace Hrogers.TileEditorBridge
                     }
                     else
                     {
-                        entry["position"] = Vector(position);
+                        if (entry.Property(
+                                "Position",
+                                StringComparison.Ordinal) != null)
+                        {
+                            entry["Position"] = Vector(position);
+                        }
+                        else
+                        {
+                            entry["position"] = Vector(position);
+                        }
                     }
                 });
             return "Moved " + selected.DisplayLabel;
@@ -1716,6 +1725,7 @@ namespace Hrogers.TileEditorBridge
                 _toolshedFacilitiesDirty =
                     beforeToolshedFacilitiesDirty;
                 RestoreSceneryModels(edit, false);
+                SyncWaterSurfacesAfterDocumentRestore();
                 if (_operationsMode)
                     RefreshOperationsMode(true);
                 throw;
@@ -2990,7 +3000,7 @@ namespace Hrogers.TileEditorBridge
                     {
                         ["name"] = id,
                         ["Code"] = code,
-                        ["traverseTimeToNext"] = minutes,
+                        ["TraverseTimeToNext"] = minutes,
                     };
             }
             return result;

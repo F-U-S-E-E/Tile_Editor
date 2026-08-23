@@ -228,22 +228,14 @@ class Layer:
                 parent = {}
                 self._raw['tracks'] = parent
             value = parent.get('areas')
-        elif name == 'loads':
+        elif name in ('loads', 'industries', 'turntables'):
             parent = self._raw.get('operations')
             if not isinstance(parent, dict):
                 if not create:
                     return {}
                 parent = {}
                 self._raw['operations'] = parent
-            value = parent.get('loads')
-        elif name == 'industries':
-            parent = self._raw.get('operations')
-            if not isinstance(parent, dict):
-                if not create:
-                    return {}
-                parent = {}
-                self._raw['operations'] = parent
-            value = parent.get('industries')
+            value = parent.get(name)
         else:
             native_names = {
                 'scenery': 'scenery',
@@ -277,7 +269,8 @@ class Layer:
         if not create:
             return {}
         value = {}
-        parent[native_name if name not in ('areas', 'loads', 'industries')
+        parent[native_name if name not in (
+            'areas', 'loads', 'industries', 'turntables')
                else name] = value
         return value
 
@@ -314,6 +307,40 @@ class Layer:
         if isinstance(values, list):
             values[:] = [value for value in values if value != object_id]
 
+    def add_operation_removal(self, kind: str, object_id: str):
+        """Record a removal supported by FUSE operations.removals."""
+        if not self.is_fuse_native or kind != 'industries' or not object_id:
+            return
+        operations = self._raw.setdefault('operations', {})
+        removals = operations.setdefault('removals', {})
+        values = removals.setdefault(kind, [])
+        if object_id not in values:
+            values.append(object_id)
+
+    def remove_operation_removal(self, kind: str, object_id: str):
+        if not self.is_fuse_native or not object_id:
+            return
+        values = (((self._raw.get('operations') or {}).get('removals') or {})
+                  .get(kind))
+        if isinstance(values, list):
+            values[:] = [value for value in values if value != object_id]
+
+    def add_base_area_suppression(self, area_id: str):
+        """Persist removal of a base area using FUSE's supported suppression."""
+        if not self.is_fuse_native or not area_id:
+            return
+        world = self._raw.setdefault('world', {})
+        values = world.setdefault('suppressBaseAreas', [])
+        if area_id not in values:
+            values.append(area_id)
+
+    def remove_base_area_suppression(self, area_id: str):
+        if not self.is_fuse_native or not area_id:
+            return
+        values = (self._raw.get('world') or {}).get('suppressBaseAreas')
+        if isinstance(values, list):
+            values[:] = [value for value in values if value != area_id]
+
     @staticmethod
     def spliney_for_editor(entry: dict) -> dict:
         result = _copy.deepcopy(entry or {})
@@ -347,7 +374,10 @@ class Layer:
             source['tailStyle'] = source.pop('tailstyle')
         allowed = {
             'type', 'profile', 'style', 'offsetY', 'headStyle',
-            'tailStyle', 'points',
+            'tailStyle', 'assetIdentifier', 'prefab', 'spacing',
+            'instanceScale', 'rotationOffset', 'lateralOffset',
+            'verticalOffset', 'snapToTerrain', 'alignToSlope',
+            'placeAtEnd', 'maximumInstances', 'points',
         }
         return {key: value for key, value in source.items() if key in allowed}
 
@@ -363,14 +393,16 @@ class Layer:
     @staticmethod
     def scenery_for_native(entry: dict) -> dict:
         source = _copy.deepcopy(entry or {})
-        identifier = str(source.pop(
-            'modelIdentifier', source.pop('model', source.get('assetIdentifier', ''))
-        ) or '').strip()
+        identifier = str(
+            source.pop('modelIdentifier', '')
+            or source.get('assetIdentifier', '')
+            or source.get('model', '')
+        ).strip()
         if '://' not in identifier:
             identifier = 'scenery://' + identifier
         source['assetIdentifier'] = identifier
         allowed = {
-            'assetIdentifier', 'position', 'rotation', 'scale',
+            'model', 'assetIdentifier', 'position', 'rotation', 'scale',
             'anchorSpanIds',
         }
         return {key: value for key, value in source.items() if key in allowed}
@@ -454,7 +486,15 @@ class Layer:
             self.simpleGraphs = _copy.deepcopy(
                 self.raw_collection('simpleGraphs')
             )
-            self.loads = _copy.deepcopy(self.raw_collection('loads'))
+            self.loads = {}
+            for key, value in self.raw_collection('loads').items():
+                if not isinstance(value, dict):
+                    continue
+                editor_load = _copy.deepcopy(value)
+                editor_load.setdefault(
+                    'description', editor_load.get('name', key)
+                )
+                self.loads[key] = editor_load
             self._merge_native_industries_into_areas()
         else:
             self.splineys = _copy.deepcopy(d.get('splineys', {}) or {})
@@ -517,7 +557,11 @@ class Layer:
                 }
 
     def _merge_native_industries_into_areas(self):
-        """Expose native operations industries through the legacy-neutral UI."""
+        """Expose native operations industries through the legacy-neutral UI.
+
+        An industry whose area is supplied by another package uses an origin
+        fallback until that external area is present in the merged project.
+        """
         for industry_id, industry in self.raw_collection('industries').items():
             if not isinstance(industry, dict):
                 continue

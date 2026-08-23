@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Core;
 using Helpers;
@@ -301,7 +302,9 @@ namespace Hrogers.TileEditorBridge
         {
             if (_gradeLabel == null
                 || _session == null
-                || _segment == null)
+                || _segment == null
+                || _segment.a == null
+                || _segment.b == null)
             {
                 return;
             }
@@ -316,7 +319,9 @@ namespace Hrogers.TileEditorBridge
                        - _segment.a.transform.localPosition.y;
             var grade = rise / length * 100f;
             _gradeLabel.text = (grade >= 0f ? "+" : string.Empty)
-                               + grade.ToString("0.00")
+                               + grade.ToString(
+                                   "0.00",
+                                   CultureInfo.InvariantCulture)
                                + "%  A->B";
             _gradeLabel.transform.localPosition =
                 _segment.Curve.GetPoint(0.5f)
@@ -363,6 +368,18 @@ namespace Hrogers.TileEditorBridge
             }
             _gradeLabel = gradeObject.GetComponent<TextMesh>()
                           ?? gradeObject.AddComponent<TextMesh>();
+            if (_gradeLabel.font == null)
+            {
+                _gradeLabel.font = Resources.GetBuiltinResource<Font>(
+                    "LegacyRuntime.ttf");
+            }
+            var gradeRenderer = gradeObject.GetComponent<MeshRenderer>()
+                                ?? gradeObject.AddComponent<MeshRenderer>();
+            if (gradeRenderer.sharedMaterial == null
+                && _gradeLabel.font != null)
+            {
+                gradeRenderer.sharedMaterial = _gradeLabel.font.material;
+            }
             _gradeLabel.anchor = TextAnchor.MiddleCenter;
             _gradeLabel.alignment = TextAlignment.Center;
             _gradeLabel.fontSize = 64;

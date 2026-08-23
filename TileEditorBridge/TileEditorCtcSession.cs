@@ -621,16 +621,7 @@ namespace Hrogers.TileEditorBridge
                     ["formatVersion"] = 1,
                     ["territories"] = new JArray
                     {
-                        new JObject
-                        {
-                            ["id"] = "territory:main",
-                            ["name"] = "Main Dispatcher",
-                            ["mode"] = "ctc",
-                            ["signalFamily"] = "semaphore",
-                            ["era"] = "1900-1950",
-                            ["controlPointIds"] = new JArray(),
-                            ["blockIds"] = new JArray(),
-                        },
+                        NewPrimaryCtcTerritory(),
                     },
                     ["controlPoints"] = new JArray(),
                     ["blocks"] = new JArray(),
@@ -654,7 +645,14 @@ namespace Hrogers.TileEditorBridge
             var territory = territories.OfType<JObject>().FirstOrDefault();
             if (territory != null)
                 return territory;
-            territory = new JObject
+            territory = NewPrimaryCtcTerritory();
+            territories.Add(territory);
+            return territory;
+        }
+
+        private static JObject NewPrimaryCtcTerritory()
+        {
+            return new JObject
             {
                 ["id"] = "territory:main",
                 ["name"] = "Main Dispatcher",
@@ -664,8 +662,6 @@ namespace Hrogers.TileEditorBridge
                 ["controlPointIds"] = new JArray(),
                 ["blockIds"] = new JArray(),
             };
-            territories.Add(territory);
-            return territory;
         }
 
         private void AddCtcTerritoryMember(string propertyName, string id)

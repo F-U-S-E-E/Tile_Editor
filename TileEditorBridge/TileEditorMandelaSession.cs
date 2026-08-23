@@ -78,9 +78,7 @@ namespace Hrogers.TileEditorBridge
         }
 
         internal int MandelaOverrideCount =>
-            _document == null
-                ? 0
-                : MandelasObject.Properties().Count();
+            ReadMandelasObject()?.Properties().Count() ?? 0;
 
         internal IReadOnlyList<string> SearchMandelaOverrides(
             string query,
@@ -89,7 +87,8 @@ namespace Hrogers.TileEditorBridge
             out int totalMatches)
         {
             query = (query ?? string.Empty).Trim();
-            var matches = MandelasObject.Properties()
+            var matches = (ReadMandelasObject()?.Properties()
+                           ?? Enumerable.Empty<JProperty>())
                 .Select(property => new
                 {
                     TargetPath = ReadMandelaTargetPath(property),
@@ -472,6 +471,7 @@ namespace Hrogers.TileEditorBridge
                 BeforeSelectedMandela = _selectedMandelaPath,
             };
 
+            EnsureMandelasObject();
             mutation();
             edit.AfterNodes = new Dictionary<string, NodeModel>();
             edit.AfterSegments = new Dictionary<string, SegmentModel>();
@@ -717,67 +717,73 @@ namespace Hrogers.TileEditorBridge
             if (existingProperty != null)
                 existingProperty.Value = entry;
             else
-                MandelasObject[_fuseNativeDocument
+                EnsureMandelasObject()[_fuseNativeDocument
                     ? MandelaDefinitionId(targetPath)
                     : targetPath] = entry;
         }
 
-        private JObject MandelasObject
+        private JObject ReadMandelasObject()
         {
-            get
+            if (_document == null)
+                return null;
+            if (!_fuseNativeDocument)
+                return _document["mandelas"] as JObject;
+            return (_document["world"] as JObject)?["sceneClones"] as JObject;
+        }
+
+        private JObject EnsureMandelasObject()
+        {
+            if (_document == null)
+                throw new InvalidOperationException(
+                    "Open an editor project first.");
+            if (!_fuseNativeDocument)
             {
-                if (_document == null)
-                    throw new InvalidOperationException(
-                        "Open an editor project first.");
-                if (!_fuseNativeDocument)
+                if (!(_document["mandelas"] is JObject legacyMandelas))
                 {
-                    if (!(_document["mandelas"] is JObject legacyMandelas))
-                    {
-                        legacyMandelas = new JObject();
-                        _document["mandelas"] = legacyMandelas;
-                    }
-                    return legacyMandelas;
+                    legacyMandelas = new JObject();
+                    _document["mandelas"] = legacyMandelas;
                 }
-
-                if (!(_document["world"] is JObject world))
-                {
-                    world = new JObject();
-                    _document["world"] = world;
-                }
-                if (!(world["sceneClones"] is JObject sceneClones))
-                {
-                    sceneClones = new JObject();
-                    world["sceneClones"] = sceneClones;
-                }
-
-                if (_document["mandelas"] is JObject misplacedMandelas)
-                {
-                    foreach (var property in misplacedMandelas
-                                 .Properties()
-                                 .ToArray())
-                    {
-                        var targetPath =
-                            ((string)property.Value?["targetPath"]
-                             ?? property.Name).Trim();
-                        if (string.IsNullOrWhiteSpace(targetPath))
-                            continue;
-                        var entry = ConvertMandelaEntryToNative(
-                            targetPath,
-                            property.Value as JObject);
-                        var id = MandelaDefinitionId(targetPath);
-                        if (sceneClones[id] != null
-                            && !JToken.DeepEquals(sceneClones[id], entry))
-                        {
-                            id = NextMigratedMandelaId(sceneClones, id);
-                        }
-                        if (sceneClones[id] == null)
-                            sceneClones[id] = entry;
-                    }
-                    _document.Remove("mandelas");
-                    _dirty = true;
-                }
-                return sceneClones;
+                return legacyMandelas;
             }
+
+            if (!(_document["world"] is JObject world))
+            {
+                world = new JObject();
+                _document["world"] = world;
+            }
+            if (!(world["sceneClones"] is JObject sceneClones))
+            {
+                sceneClones = new JObject();
+                world["sceneClones"] = sceneClones;
+            }
+
+            if (_document["mandelas"] is JObject misplacedMandelas)
+            {
+                foreach (var property in misplacedMandelas
+                             .Properties()
+                             .ToArray())
+                {
+                    var targetPath =
+                        ((string)property.Value?["targetPath"]
+                         ?? property.Name).Trim();
+                    if (string.IsNullOrWhiteSpace(targetPath))
+                        continue;
+                    var entry = ConvertMandelaEntryToNative(
+                        targetPath,
+                        property.Value as JObject);
+                    var id = MandelaDefinitionId(targetPath);
+                    if (sceneClones[id] != null
+                        && !JToken.DeepEquals(sceneClones[id], entry))
+                    {
+                        id = NextMigratedMandelaId(sceneClones, id);
+                    }
+                    if (sceneClones[id] == null)
+                        sceneClones[id] = entry;
+                }
+                _document.Remove("mandelas");
+                _dirty = true;
+            }
+            return sceneClones;
         }
 
         private string ReadMandelaSourcePath(string targetPath)
@@ -798,9 +804,12 @@ namespace Hrogers.TileEditorBridge
             {
                 return null;
             }
+            var mandelas = ReadMandelasObject();
+            if (mandelas == null)
+                return null;
             if (!_fuseNativeDocument)
-                return MandelasObject.Property(targetPath);
-            return MandelasObject.Properties().FirstOrDefault(
+                return mandelas.Property(targetPath);
+            return mandelas.Properties().FirstOrDefault(
                 property => string.Equals(
                     ReadMandelaTargetPath(property),
                     targetPath,

@@ -38,11 +38,14 @@ namespace Hrogers.TileEditorBridge
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, bool> _baseLakeOriginalActiveStates =
             new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyList<WaterSurfaceInfo> _waterSurfacesCache;
+        private IReadOnlyList<BaseLakeInfo> _baseLakesCache;
 
         internal IReadOnlyList<WaterSurfaceInfo> WaterSurfaces =>
-            ReadWaterSurfaces();
+            _waterSurfacesCache ?? (_waterSurfacesCache = ReadWaterSurfaces());
 
-        internal IReadOnlyList<BaseLakeInfo> BaseLakes => DiscoverBaseLakes();
+        internal IReadOnlyList<BaseLakeInfo> BaseLakes =>
+            _baseLakesCache ?? (_baseLakesCache = DiscoverBaseLakes());
 
         internal string CreateWaterSurfaceRectangle(
             string id,
@@ -97,6 +100,7 @@ namespace Hrogers.TileEditorBridge
                     throw new InvalidOperationException($"Water surface '{id}' already exists in this package.");
                 surfaces[id] = WriteWaterSurface(info);
                 ApplyRuntimeWaterSurface(info);
+                InvalidateWaterCaches();
             });
             return "Created water surface " + id;
         }
@@ -132,6 +136,7 @@ namespace Hrogers.TileEditorBridge
                         _baseLakeOriginalActiveStates[source.Path] = sourceObject.activeSelf;
                     sourceObject.SetActive(false);
                 }
+                InvalidateWaterCaches();
             });
             return "Replaced base lake with editable water surface " + id;
         }
@@ -150,6 +155,7 @@ namespace Hrogers.TileEditorBridge
                     throw new InvalidOperationException($"Water surface '{info.Id}' was not found in this package.");
                 surfaces[info.Id] = WriteWaterSurface(info);
                 ApplyRuntimeWaterSurface(info);
+                InvalidateWaterCaches();
             });
             return "Updated water surface " + info.Id;
         }
@@ -177,6 +183,7 @@ namespace Hrogers.TileEditorBridge
                     RemoveStringArrayValue("suppressBaseScenePaths", sourcePath);
                     RestoreEditorHiddenBaseLake(sourcePath);
                 }
+                InvalidateWaterCaches();
             });
             return "Deleted water surface " + id;
         }
@@ -185,13 +192,16 @@ namespace Hrogers.TileEditorBridge
         {
             _editorAppliedWaterSurfaceIds.Clear();
             _baseLakeOriginalActiveStates.Clear();
+            _waterSurfacesCache = null;
+            _baseLakesCache = null;
         }
 
         private void SyncWaterSurfacesAfterDocumentRestore()
         {
             if (!_fuseNativeDocument || _document == null)
                 return;
-            var current = ReadWaterSurfaces();
+            InvalidateWaterCaches();
+            var current = WaterSurfaces;
             var currentIds = new HashSet<string>(
                 current.Select(info => info.Id),
                 StringComparer.OrdinalIgnoreCase);
@@ -235,12 +245,19 @@ namespace Hrogers.TileEditorBridge
             if (string.IsNullOrWhiteSpace(path)
                 || !_baseLakeOriginalActiveStates.TryGetValue(path, out var wasActive))
                 return;
-            _baseLakeOriginalActiveStates.Remove(path);
-            if (!wasActive || IsScenePathSuppressedByFuse(path))
+            if (!wasActive)
+            {
+                _baseLakeOriginalActiveStates.Remove(path);
+                return;
+            }
+            if (IsScenePathSuppressedByFuse(path))
                 return;
             var sourceObject = FindGameObjectByPath(path);
             if (sourceObject != null)
+            {
                 sourceObject.SetActive(true);
+                _baseLakeOriginalActiveStates.Remove(path);
+            }
         }
 
         private static bool IsScenePathSuppressedByFuse(string path)
@@ -358,12 +375,26 @@ namespace Hrogers.TileEditorBridge
         {
             if (info.Points == null || info.Points.Length < 3)
                 throw new InvalidOperationException("A water surface requires at least three boundary points.");
-            if (info.UvScale <= 0f)
+            if (info.Points.Any(point => !IsFinite(point.x)
+                                         || !IsFinite(point.y)
+                                         || !IsFinite(point.z)))
+                throw new InvalidOperationException("Water boundary points must contain only finite coordinates.");
+            if (!IsFinite(info.UvScale) || info.UvScale <= 0f)
                 throw new InvalidOperationException("Water UV scale must be greater than zero.");
-            if (info.TriangleDensity <= 0f || info.TriangleDensity > 1f)
+            if (!IsFinite(info.TriangleDensity)
+                || info.TriangleDensity <= 0f
+                || info.TriangleDensity > 1f)
                 throw new InvalidOperationException("Water triangle density must be greater than zero and at most one.");
-            if (info.MaximumTriangleArea <= 0f)
+            if (!IsFinite(info.MaximumTriangleArea)
+                || info.MaximumTriangleArea <= 0f)
                 throw new InvalidOperationException("Water maximum triangle area must be greater than zero.");
+            if (!IsFinite(info.YOffset))
+                throw new InvalidOperationException("Water vertical offset must be finite.");
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private void RequireNativeWaterDocument()
@@ -403,7 +434,9 @@ namespace Hrogers.TileEditorBridge
             SetProperty(definitionType, definition, "YOffset", info.YOffset);
 
             var get = apiType.GetMethod("GetWaterSurface", BindingFlags.Public | BindingFlags.Static);
-            var exists = get?.Invoke(null, new object[] { info.Id }) != null;
+            if (get == null)
+                throw new InvalidOperationException("The installed FUSE water runtime is missing its lookup API.");
+            var exists = get.Invoke(null, new object[] { info.Id }) != null;
             var method = apiType.GetMethod(
                 exists ? "UpdateWaterSurface" : "AddWaterSurface",
                 BindingFlags.Public | BindingFlags.Static);
@@ -429,7 +462,20 @@ namespace Hrogers.TileEditorBridge
 
         private static void SetProperty(Type type, object instance, string name, object value)
         {
-            type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance)?.SetValue(instance, value, null);
+            var property = type.GetProperty(
+                name,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (property == null || !property.CanWrite)
+                throw new InvalidOperationException(
+                    "The installed FUSE water definition is missing writable property '"
+                    + name + "'.");
+            property.SetValue(instance, value, null);
+        }
+
+        private void InvalidateWaterCaches()
+        {
+            _waterSurfacesCache = null;
+            _baseLakesCache = null;
         }
 
         private static string NullIfBlank(string value)

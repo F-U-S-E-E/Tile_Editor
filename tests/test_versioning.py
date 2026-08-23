@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 
@@ -121,6 +122,51 @@ class PackageVersionTests(unittest.TestCase):
             expected,
         )
         self.assertIn(f"Hrogers Tile Editor Suite {expected}", launcher_source)
+
+    def test_release_zip_entries_use_forward_slashes(self):
+        if os.name != "nt":
+            self.skipTest("Windows release-packaging test")
+        powershell = shutil.which("powershell.exe") or shutil.which(
+            "powershell"
+        )
+        if not powershell:
+            self.skipTest("Windows PowerShell is unavailable")
+
+        root = Path(__file__).resolve().parent.parent
+        helper = root / "TileEditorBridge" / "New-ForwardSlashZip.ps1"
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            source = temporary_path / "PackageRoot"
+            nested = source / "nested"
+            nested.mkdir(parents=True)
+            (nested / "example.txt").write_text("ok", encoding="utf-8")
+            archive = temporary_path / "package.zip"
+            command = (
+                f". '{helper}'; "
+                f"New-ForwardSlashZip -SourceDirectory '{source}' "
+                f"-DestinationPath '{archive}'"
+            )
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    command,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with zipfile.ZipFile(archive) as package:
+                self.assertEqual(
+                    package.namelist(),
+                    ["PackageRoot/nested/example.txt"],
+                )
 
     def test_desktop_dirty_terrain_count_is_thread_safe(self):
         root = Path(__file__).resolve().parent.parent
@@ -1399,8 +1445,8 @@ class PackageVersionTests(unittest.TestCase):
         self.assertIn("TerrainBrushMode.Smooth", panel_source)
         self.assertIn("TerrainBrushMode.Vegetation", panel_source)
         self.assertIn("TerrainBrushMode.Water", panel_source)
-        self.assertIn('"0 Full"', panel_source)
-        self.assertIn('"7 Clear"', panel_source)
+        self.assertIn('"0 Clear"', panel_source)
+        self.assertIn('"7 Full"', panel_source)
         self.assertIn(
             "These are vegetation-density levels, not fixed biomes.",
             panel_source,
@@ -1888,7 +1934,7 @@ class PackageVersionTests(unittest.TestCase):
             root / "edit_tiles" / "app.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('"Native FUSE",\n                    "Legacy RL"', panel_source)
+        self.assertRegex(panel_source, r'"Native FUSE"\s*,\s*"Legacy RL"')
         self.assertIn("_newModFormat == 0", panel_source)
         self.assertIn("TryDescribeTurnoutGeometry(", panel_source)
         self.assertIn("radius < 35f", panel_source)
@@ -2093,6 +2139,76 @@ class PackageVersionTests(unittest.TestCase):
             self.assertEqual(fuse_raw["companionData"], {"keep": True})
             self.assertTrue(fuse_node_raw["isDiamond"])
             self.assertEqual(fuse_node_raw["tags"], ["crossing"])
+
+    def test_native_deletes_use_supported_fuse_106_markers(self):
+        from mod_project.helpers import (
+            load_delete,
+            mandela_delete,
+            spliney_delete,
+            text_delete,
+        )
+        from mod_project.layer import Layer
+        from tests.schema_support import assert_fuse_schema_valid
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "deletes.fuse.json"
+            path.write_text(
+                json.dumps({
+                    "schemaVersion": "1.0",
+                    "id": "delete-test",
+                    "name": "Delete Test",
+                    "author": "Tests",
+                    "operations": {
+                        "loads": {
+                            "local-load": {
+                                "name": "Local load",
+                                "units": "Quantity",
+                            },
+                        },
+                    },
+                    "world": {
+                        "mapLabels": {
+                            "local-label": {
+                                "text": "Local label",
+                                "position": {"x": 0, "y": 0, "z": 0},
+                            },
+                        },
+                        "splineys": {},
+                        "sceneClones": {},
+                    },
+                }),
+                encoding="utf-8",
+            )
+            layer = Layer(path, "graph", (1, 2, 3), "native")
+            layer.load()
+
+            self.assertTrue(load_delete(layer, "local-load"))
+            layer.loads["inherited-load"] = {"description": "Inherited"}
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot remove a load inherited",
+            ):
+                load_delete(layer, "inherited-load")
+            self.assertTrue(text_delete(layer, "local-label"))
+            self.assertTrue(spliney_delete(layer, "base-spliney"))
+            self.assertTrue(mandela_delete(layer, "World/Base/Object"))
+
+            self.assertNotIn(
+                "local-load",
+                layer._raw["operations"]["loads"],
+            )
+            self.assertNotIn(
+                "loads",
+                layer._raw["operations"].get("removals", {}),
+            )
+            removals = layer._raw["world"]["removals"]
+            self.assertEqual(removals["mapLabels"], ["local-label"])
+            self.assertEqual(removals["splineys"], ["base-spliney"])
+            self.assertEqual(
+                removals["sceneClones"],
+                [layer.scene_clone_id("World/Base/Object")],
+            )
+            assert_fuse_schema_valid(self, layer._raw)
 
     def test_f9_supports_gauges_and_native_fuse_track_fragments(self):
         root = Path(__file__).resolve().parent.parent
@@ -2967,10 +3083,10 @@ class NativeServiceFacilityContractTests(unittest.TestCase):
         writer = source.split(
             "private void WriteMandela(", 1
         )[1].split(
-            "private JObject MandelasObject", 1
+            "private JObject ReadMandelasObject", 1
         )[0]
         container = source.split(
-            "private JObject MandelasObject", 1
+            "private JObject EnsureMandelasObject", 1
         )[1].split(
             "private string ReadMandelaSourcePath(string targetPath)", 1
         )[0]

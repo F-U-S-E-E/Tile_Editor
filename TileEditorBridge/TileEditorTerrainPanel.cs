@@ -43,26 +43,26 @@ namespace Hrogers.TileEditorBridge
 
         private static readonly string[] VegetationPresetNames =
         {
-            "Full (Dense Forest)",
-            "Very Dense (Woodland)",
-            "Dense (Trees + Brush)",
-            "Medium (Mixed Cover)",
-            "Light (Grass + Shrubs)",
-            "Sparse (Open Ground)",
-            "Minimal (Pasture / Crops)",
             "Clear (Developed / Bare)",
+            "Minimal (Pasture / Crops)",
+            "Sparse (Open Ground)",
+            "Light (Grass + Shrubs)",
+            "Medium (Mixed Cover)",
+            "Dense (Trees + Brush)",
+            "Very Dense (Woodland)",
+            "Full (Dense Forest)",
         };
 
         private static readonly string[] VegetationPresetDescriptions =
         {
-            "100% mask; maximum tree and plant placement.",
-            "About 86%; very dense vegetation such as woodland.",
-            "About 71%; dense trees and brush with small openings.",
-            "About 57%; balanced mixed vegetation and open ground.",
-            "About 43%; lighter grass, shrubs, and scattered trees.",
-            "About 29%; sparse vegetation over mostly open ground.",
-            "About 14%; minimal vegetation for pasture or cropland.",
             "0% mask; cleared, built-up, bare, snow, or open water.",
+            "About 14%; minimal vegetation for pasture or cropland.",
+            "About 29%; sparse vegetation over mostly open ground.",
+            "About 43%; lighter grass, shrubs, and scattered trees.",
+            "About 57%; balanced mixed vegetation and open ground.",
+            "About 71%; dense trees and brush with small openings.",
+            "About 86%; very dense vegetation such as woodland.",
+            "100% mask; maximum tree and plant placement.",
         };
 
         private TerrainWorkspace _terrainWorkspace =
@@ -334,14 +334,14 @@ namespace Hrogers.TileEditorBridge
                     Mathf.Clamp(_terrainVegetationId, 0, 7),
                     new[]
                     {
-                        "0 Full",
-                        "1 Very Dense",
-                        "2 Dense",
-                        "3 Medium",
-                        "4 Light",
-                        "5 Sparse",
-                        "6 Minimal",
-                        "7 Clear",
+                        "0 Clear",
+                        "1 Minimal",
+                        "2 Sparse",
+                        "3 Light",
+                        "4 Medium",
+                        "5 Dense",
+                        "6 Very Dense",
+                        "7 Full",
                     },
                     4);
                 GUILayout.Label(
@@ -755,17 +755,19 @@ namespace Hrogers.TileEditorBridge
                     now - _terrainLastDabAt,
                     0.016f,
                     0.1f);
+                const int maximumDabsPerFrame = 64;
                 var maximumDabSpacing = Mathf.Max(
                     0.05f,
                     radius * spacing);
                 var dabCount = _terrainHasLastDab
-                    ? Mathf.Max(
-                        1,
+                    ? Mathf.Clamp(
                         Mathf.CeilToInt(
                             Vector3.Distance(
                                 _terrainLastDab,
                                 hit.point)
-                            / maximumDabSpacing))
+                            / maximumDabSpacing),
+                        1,
+                        maximumDabsPerFrame)
                     : 1;
                 var brush = BuildTerrainBrushParameters(radius);
                 var changed = 0;

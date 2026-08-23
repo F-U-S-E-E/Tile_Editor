@@ -167,8 +167,8 @@ surface must agree.
 
 ## Vegetation Presets And Persistence
 
-Surface Paint names all eight vegetation-density levels from **Full (0, 100%)**
-through **Clear (7, 0%)**. The selected level includes its approximate mask
+Surface Paint names all eight vegetation-density levels from **Clear (0, 0%)**
+through **Full (7, 100%)**. The selected level includes its approximate mask
 strength and a practical example such as dense forest, woodland, mixed cover,
 open grass, pasture/crops, or cleared ground. These are not fixed biomes: track,
 water, objects, slope, cut-tree masks, and the active density graph can still

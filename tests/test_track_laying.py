@@ -27,6 +27,7 @@ from mod_project import (
     turnout_radius_for_chord,
 )
 from railroader_bridge import BridgeState
+from schema_support import assert_fuse_schema_valid
 
 
 class _BridgeHarness(BridgeMixin):
@@ -122,8 +123,6 @@ class TrackLayingTests(unittest.TestCase):
             self.assertEqual(reopened_graph.track_schema, "fuse")
 
     def test_new_mod_can_scaffold_complete_native_map_package(self):
-        from jsonschema import Draft202012Validator
-
         with tempfile.TemporaryDirectory() as temp_dir:
             mod_folder = Path(temp_dir) / "StandaloneMap"
             project = ModProject.new_mod(
@@ -156,15 +155,7 @@ class TrackLayingTests(unittest.TestCase):
             self.assertEqual(manifest["tiles"], [])
             self.assertEqual(project.get_graph_layer().track_schema, "fuse")
 
-            schema = json.loads(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "FUSE"
-                    / "schemas"
-                    / "fuse-mod.schema.json"
-                ).read_text(encoding="utf-8")
-            )
-            Draft202012Validator(schema).validate(definition)
+            assert_fuse_schema_valid(self, definition)
 
     def test_map_manifest_sync_tracks_signed_tile_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -199,8 +190,6 @@ class TrackLayingTests(unittest.TestCase):
         self.assertFalse(_uses_stock_height_correction(40.43, -77.72))
 
     def test_native_desktop_world_tools_write_fuse_containers(self):
-        from jsonschema import Draft202012Validator
-
         with tempfile.TemporaryDirectory() as temp_dir:
             mod_folder = Path(temp_dir) / "NativeWorldTools"
             project = ModProject.new_mod(
@@ -268,16 +257,9 @@ class TrackLayingTests(unittest.TestCase):
                 "groupId", saved["tracks"]["segments"]["s1"]
             )
 
-            schema_path = (
-                Path(__file__).resolve().parents[2]
-                / "FUSE" / "schemas" / "fuse-mod.schema.json"
-            )
-            schema = json.loads(schema_path.read_text(encoding="utf-8"))
-            errors = list(Draft202012Validator(schema).iter_errors(saved))
-            self.assertEqual(errors, [], "\n".join(error.message for error in errors))
+            assert_fuse_schema_valid(self, saved)
 
     def test_native_desktop_towns_split_tracks_and_operations(self):
-        from jsonschema import Draft202012Validator
         from mod_project import Area
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -341,17 +323,9 @@ class TrackLayingTests(unittest.TestCase):
                 component["fields"]["customSwitch"], "preserved"
             )
 
-            schema_path = (
-                Path(__file__).resolve().parents[2]
-                / "FUSE" / "schemas" / "fuse-mod.schema.json"
-            )
-            schema = json.loads(schema_path.read_text(encoding="utf-8"))
-            errors = list(Draft202012Validator(schema).iter_errors(saved))
-            self.assertEqual(errors, [], "\n".join(error.message for error in errors))
+            assert_fuse_schema_valid(self, saved)
 
     def test_native_desktop_progression_uses_progression_contract(self):
-        from jsonschema import Draft202012Validator
-
         with tempfile.TemporaryDirectory() as temp_dir:
             project = ModProject.new_mod(
                 Path(temp_dir) / "NativeProgression",
@@ -384,13 +358,7 @@ class TrackLayingTests(unittest.TestCase):
             )
             self.assertEqual(section["prerequisiteSectionIds"], [])
 
-            schema_path = (
-                Path(__file__).resolve().parents[2]
-                / "FUSE" / "schemas" / "fuse-mod.schema.json"
-            )
-            schema = json.loads(schema_path.read_text(encoding="utf-8"))
-            errors = list(Draft202012Validator(schema).iter_errors(saved))
-            self.assertEqual(errors, [], "\n".join(error.message for error in errors))
+            assert_fuse_schema_valid(self, saved)
 
     def test_new_mod_rejects_invalid_id_and_non_empty_target(self):
         with tempfile.TemporaryDirectory() as temp_dir:

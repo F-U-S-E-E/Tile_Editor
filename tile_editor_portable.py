@@ -34,9 +34,12 @@ def _smoke_test() -> int:
     import scipy
     from PIL import Image
 
-    from edit_tiles.app import TileEditor  # noqa: F401
+    from edit_tiles.app import TileEditor, main as editor_main  # noqa: F401
     from edit_tiles.version import __version__
     from mod_project import ModProject  # noqa: F401
+
+    if not callable(editor_main):
+        raise RuntimeError("The normal Tile Editor launch entry point is unavailable")
 
     print(
         "Tile Editor portable runtime OK "

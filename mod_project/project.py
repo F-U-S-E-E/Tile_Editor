@@ -525,6 +525,11 @@ class ModProject:
         if complete_map and loader_kind != 'fuse':
             raise ValueError("Complete standalone maps require loader='fuse'")
         if complete_map:
+            if map_origin_lat is None or map_origin_lon is None:
+                raise ValueError(
+                    "Complete standalone maps require a map origin latitude "
+                    "and longitude"
+                )
             map_origin_lat = float(map_origin_lat)
             map_origin_lon = float(map_origin_lon)
             map_tile_dimension = float(map_tile_dimension)

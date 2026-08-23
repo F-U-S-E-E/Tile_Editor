@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title Hrogers Tile Editor Suite 0.26.8
+title Hrogers Tile Editor Suite 0.26.7
 
 set "EDITOR_DIR=%~dp0TileEditor"
 set "PORTABLE_EXE=%EDITOR_DIR%\PortableRuntime\TileEditor.exe"
@@ -14,7 +14,7 @@ if exist "%INSTALLED_GAME_DIR%\Railroader_Data" if exist "%INSTALLED_GAME_DIR%\M
 )
 
 echo ============================================================
-echo   Hrogers Tile Editor Suite 0.26.8
+echo   Hrogers Tile Editor Suite 0.26.7
 echo ============================================================
 echo.
 
@@ -23,8 +23,8 @@ if exist "%PORTABLE_EXE%" (
         echo [FOUND] Bundled portable Python runtime:
         echo         "%PORTABLE_EXE%"
         "%PORTABLE_EXE%" --portable-smoke-test
-        endlocal
-        exit /b %ERRORLEVEL%
+        set "PORTABLE_SMOKE_EXIT=!ERRORLEVEL!"
+        endlocal & exit /b !PORTABLE_SMOKE_EXIT!
     )
     echo [PORTABLE] Using the bundled Python runtime.
     echo [START] Launching the desktop Tile Editor...

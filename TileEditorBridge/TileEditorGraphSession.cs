@@ -516,22 +516,29 @@ namespace Hrogers.TileEditorBridge
             return true;
         }
 
-        internal SelectionInfo SelectedNode => _selectedNode == null
-            ? null
-            : new SelectionInfo
+        internal SelectionInfo SelectedNode
+        {
+            get
             {
-                Id = _selectedNode.id,
-                Position = _selectedNode.transform.localPosition,
-                Rotation = _selectedNode.transform.localEulerAngles,
-                FlipSwitchStand = _selectedNode.flipSwitchStand,
-                ConnectedSegments =
-                    _graph.SegmentsConnectedTo(_selectedNode).Count(),
-                ConnectedSegmentIds = _graph
+                if (_selectedNode == null)
+                    return null;
+                var connectedSegments = _graph
                     .SegmentsConnectedTo(_selectedNode)
+                    .ToArray();
+                return new SelectionInfo
+                {
+                    Id = _selectedNode.id,
+                    Position = _selectedNode.transform.localPosition,
+                    Rotation = _selectedNode.transform.localEulerAngles,
+                    FlipSwitchStand = _selectedNode.flipSwitchStand,
+                    ConnectedSegments = connectedSegments.Length,
+                    ConnectedSegmentIds = connectedSegments
                     .Select(segment => segment.id)
                     .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
-            };
+                };
+            }
+        }
 
         internal SelectionInfo SelectedSegment => _selectedSegment == null
             ? null

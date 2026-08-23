@@ -13,6 +13,7 @@ draw() and handle_event() are slim routers; the logic lives in the mixins.
 import os
 import sys
 import math
+import re
 import json
 import copy
 import heapq
@@ -3817,6 +3818,11 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
             if mod_id is None:
                 return
             mod_id = mod_id.strip()
+            if not mod_id or not re.fullmatch(r"[A-Za-z0-9_.]+", mod_id):
+                self._set_status(
+                    "Mod ID must use only letters, numbers, underscores, and dots"
+                )
+                return
             mod_name = ask_string(
                 self.screen,
                 "Create New Mod",
@@ -3890,6 +3896,13 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
                     except ValueError:
                         raise ValueError(
                             "Map origin latitude and longitude must be numbers"
+                        ) from None
+                    if not (
+                            -90.0 <= map_origin_lat <= 90.0
+                            and -180.0 <= map_origin_lon <= 180.0):
+                        raise ValueError(
+                            "Map origin must be within -90..90 latitude and "
+                            "-180..180 longitude"
                         )
 
             initial_dir = None
@@ -4136,6 +4149,11 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
                 self._set_status("Validation cancelled; project has unsaved changes")
                 return
             self.save_mod_project()
+            if self.mod_project.dirty:
+                self._set_status(
+                    "Validation cancelled; project changes could not be saved"
+                )
+                return
         try:
             issues = validate_mod(Path(self.mod_project.folder))
         except Exception as exc:
@@ -4176,6 +4194,11 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
                 self._set_status("Export cancelled; project has unsaved changes")
                 return
             self.save_mod_project()
+            if self.mod_project.dirty:
+                self._set_status(
+                    "Export cancelled; project changes could not be saved"
+                )
+                return
         folder = Path(self.mod_project.folder)
         try:
             issues = validate_mod(folder)
@@ -7996,6 +8019,7 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
                          and not str(value or "").strip())
             }
             layer.raw_collection("areas", create=True)[area_id] = area_payload
+            layer.remove_base_area_suppression(area_id)
             native_industries = layer.raw_collection(
                 "industries", create=True
             )
@@ -8006,6 +8030,7 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
             }
             for industry_id in authored_for_area - set(industries_payload):
                 native_industries.pop(industry_id, None)
+                layer.add_operation_removal("industries", industry_id)
             for industry_id, industry in industries_payload.items():
                 native_industries[industry_id] = self._native_industry_payload(
                     area_id,
@@ -8013,6 +8038,7 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
                     industry_id,
                     industry,
                 )
+                layer.remove_operation_removal("industries", industry_id)
         else:
             layer.raw_collection("areas", create=True)[area_id] = payload
         layer.areas[area_id] = payload
@@ -8033,11 +8059,13 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
         areas = layer.raw_collection("areas", create=True)
         if layer.is_fuse_native:
             areas.pop(area_id, None)
+            layer.add_base_area_suppression(area_id)
             industries = layer.raw_collection("industries", create=True)
             for industry_id, industry in list(industries.items()):
                 if (isinstance(industry, dict)
                         and str(industry.get("areaId", "")) == area_id):
                     industries.pop(industry_id, None)
+                    layer.add_operation_removal("industries", industry_id)
         else:
             areas[area_id] = None
         layer.areas[area_id] = None
@@ -8293,8 +8321,12 @@ class TileEditor(DrawMixin, EventsMixin, BridgeMixin):
         from mod_project import Area
         area_data = self._normalize_area_payload(payload, aid, aid)
         area_data["industries"] = {}
+        try:
+            layer_idx, _layer = self._ensure_town_layer(target)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._set_status(f"Could not create area: {exc}")
+            return
         pp.areas[aid] = Area(aid, area_data)
-        layer_idx, _layer = self._ensure_town_layer(target)
         pp.area_layer[aid] = layer_idx
         self._sync_area_to_layer(aid)
         self.area_sel_id = aid

@@ -326,8 +326,12 @@ namespace Hrogers.TileEditorBridge
             _featureChoiceValues = string.Join(",", option.Values ?? Array.Empty<string>());
             _featureDefaultValue = FeatureTokenText(option.DefaultValue);
             _featureExpectedValue = FeatureTokenText(option.ExpectedValue);
-            _featureBoolDefault = option.DefaultValue?.Value<bool>() ?? true;
-            _featureBoolExpected = option.ExpectedValue?.Value<bool>() ?? true;
+            _featureBoolDefault = option.DefaultValue?.Type == JTokenType.Boolean
+                ? option.DefaultValue.Value<bool>()
+                : true;
+            _featureBoolExpected = option.ExpectedValue?.Type == JTokenType.Boolean
+                ? option.ExpectedValue.Value<bool>()
+                : true;
             _featureMin = FeatureNumberText(option.Min, 0d);
             _featureMax = FeatureNumberText(option.Max, 10d);
             _featureStep = FeatureNumberText(option.Step, 1d);

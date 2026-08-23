@@ -1352,9 +1352,11 @@ namespace Hrogers.TileEditorBridge
                     TimetableCode = _opsPassengerCode,
                     Branch = _opsPassengerBranch,
                     NeighborIds = _opsPassengerNeighbors,
-                    TraverseTimeToNext = ParseFloat(
-                        _opsPassengerTraverseMinutes,
-                        "time to next passenger stop"),
+                    TraverseTimeToNext = profile == "Passenger"
+                        ? ParseFloat(
+                            _opsPassengerTraverseMinutes,
+                            "time to next passenger stop")
+                        : 0f,
                     PassengerMapFeature = _opsPassengerMapFeature,
                     PassengerIntermediates =
                         _opsPassengerIntermediates,

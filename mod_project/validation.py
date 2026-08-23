@@ -63,6 +63,9 @@ def validate_mod(folder: Path) -> list:
         fuse_data_files = defn.get('FuseDataFiles', [])
         if isinstance(fuse_data_files, str):
             fuse_data_files = [fuse_data_files]
+        elif not isinstance(fuse_data_files, list):
+            err("Info.json FuseDataFiles must be a string or an array of strings")
+            fuse_data_files = []
         for relative in fuse_data_files:
             if not isinstance(relative, str) or not relative.strip():
                 err("Info.json FuseDataFiles contains an invalid empty entry")
@@ -219,10 +222,31 @@ def validate_mod(folder: Path) -> list:
         warn,
     )
 
-    # D11n: text values must be plain strings, not dicts
+    # Legacy text values are strings; native FUSE map labels are objects.
     for layer in proj.layers:
         for text_id, text_val in layer.texts.items():
-            if not isinstance(text_val, str):
+            if layer.is_fuse_native:
+                position = (
+                    text_val.get('position')
+                    if isinstance(text_val, dict) else None
+                )
+                valid_native_label = (
+                    isinstance(text_val, dict)
+                    and isinstance(text_val.get('text'), str)
+                    and bool(text_val['text'].strip())
+                    and isinstance(position, dict)
+                    and all(
+                        isinstance(position.get(axis), (int, float))
+                        and _math.isfinite(float(position[axis]))
+                        for axis in ('x', 'y', 'z')
+                    )
+                )
+                if not valid_native_label:
+                    err(
+                        f"Layer {layer.label}: mapLabels['{text_id}'] must "
+                        "contain non-empty text and a finite x/y/z position"
+                    )
+            elif not isinstance(text_val, str):
                 err(f"Layer {layer.label}: texts['{text_id}'] is "
                     f"{type(text_val).__name__}, expected str (A1 fix not applied)")
 

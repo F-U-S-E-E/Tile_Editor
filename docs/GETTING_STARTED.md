@@ -116,14 +116,14 @@ exclude plants around track, water, objects, steep slopes, and cut-tree masks.
 
 | ID | Density | Approx. mask | Typical use |
 | --- | --- | --- | --- |
-| 0 | Full | 100% | Dense forest and maximum plant placement |
-| 1 | Very Dense | 86% | Woodland or other very dense cover |
-| 2 | Dense | 71% | Trees and brush with small openings |
-| 3 | Medium | 57% | Balanced mixed vegetation and open ground |
-| 4 | Light | 43% | Grass, shrubs, and scattered trees |
-| 5 | Sparse | 29% | Mostly open grass or ground |
-| 6 | Minimal | 14% | Pasture, cropland, and lightly planted yards |
-| 7 | Clear | 0% | Built-up, bare, snow, or open-water ground |
+| 0 | Clear | 0% | Built-up, bare, snow, or open-water ground |
+| 1 | Minimal | 14% | Pasture, cropland, and lightly planted yards |
+| 2 | Sparse | 29% | Mostly open grass or ground |
+| 3 | Light | 43% | Grass, shrubs, and scattered trees |
+| 4 | Medium | 57% | Balanced mixed vegetation and open ground |
+| 5 | Dense | 71% | Trees and brush with small openings |
+| 6 | Very Dense | 86% | Woodland or other very dense cover |
+| 7 | Full | 100% | Dense forest and maximum plant placement |
 
 Saving is atomic and keeps a recoverable tile backup. A successful desktop save
 recalculates tile statistics and invalidates every overview/detail/scale render

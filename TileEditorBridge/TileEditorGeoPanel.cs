@@ -2714,7 +2714,8 @@ namespace Hrogers.TileEditorBridge
                         2);
                     GUILayout.EndHorizontal();
 
-                    GUI.enabled = segment != null;
+                    var priorEnabled = GUI.enabled;
+                    GUI.enabled = priorEnabled && segment != null;
                     if (GUILayout.Button(
                             "BUILD BRIDGE ON SELECTED TRACK",
                             GUILayout.Height(36f)))
@@ -2737,7 +2738,7 @@ namespace Hrogers.TileEditorBridge
                                 _trackBridgeName = string.Empty;
                             });
                     }
-                    GUI.enabled = true;
+                    GUI.enabled = priorEnabled;
                     DrawSplineyChangeBar();
                     return;
                 }
@@ -2769,11 +2770,12 @@ namespace Hrogers.TileEditorBridge
                 }
                 if (!nativeSplineFormat)
                 {
+                    var priorEnabled = GUI.enabled;
                     GUI.enabled = false;
                     GUILayout.Button(
                         "Fence / Wall (Native FUSE only)",
                         GUILayout.Height(27f));
-                    GUI.enabled = true;
+                    GUI.enabled = priorEnabled;
                     GUILayout.Label(
                         "Legacy RailLoader splineys cannot store repeated "
                         + "objects. Create or convert the project as Native "

@@ -4,11 +4,10 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
-
 from edit_tiles.generate import sync_map_json_tile_list
 from mod_project import ModProject, mandela_set, scenery_set, spliney_add_road
 from mod_project.validation import export_clean_zip, validate_mod
+from schema_support import assert_fuse_schema_valid
 
 
 class CompleteMapWorkflowTests(unittest.TestCase):
@@ -208,10 +207,8 @@ class CompleteMapWorkflowTests(unittest.TestCase):
             errors = [message for severity, message in validate_mod(folder) if severity == "error"]
             self.assertEqual(errors, [])
 
-            schema = json.loads((Path(__file__).resolve().parents[2] / "FUSE" / "schemas" / "fuse-mod.schema.json").read_text(encoding="utf-8"))
             authored = json.loads((folder / "map.fuse.json").read_text(encoding="utf-8"))
-            schema_errors = list(Draft202012Validator(schema).iter_errors(authored))
-            self.assertEqual(schema_errors, [], "\n".join(error.message for error in schema_errors))
+            assert_fuse_schema_valid(self, authored)
 
             archive = root / "CompleteMap.zip"
             self.assertTrue(export_clean_zip(folder, archive))

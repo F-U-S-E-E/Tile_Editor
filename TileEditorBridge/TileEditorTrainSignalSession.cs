@@ -996,7 +996,17 @@ namespace Hrogers.TileEditorBridge
         private void SaveTrainSignals()
         {
             EnsureTrainSignalsDocument();
-            EnsureSignalRuntimeRequirement();
+            try
+            {
+                EnsureSignalRuntimeRequirement();
+            }
+            catch (Exception exception)
+            {
+                _logger?.Warning(
+                    "Could not annotate the package manifest for portable "
+                    + "signals; train-signals.json will still be saved: "
+                    + exception.Message);
+            }
             if (string.IsNullOrWhiteSpace(_trainSignalsBackupPath)
                 && File.Exists(_trainSignalsPath))
             {
