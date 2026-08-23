@@ -1,10 +1,14 @@
 param(
     [string]$GameDir = "",
+    [string]$ManagedReferencesDir = "",
+    [string]$ModManagerReferencesDir = "",
+    [string]$PythonExe = "",
     [switch]$Deploy
 )
 
 $ErrorActionPreference = "Stop"
 $sourceDir = $PSScriptRoot
+. (Join-Path $sourceDir "New-ForwardSlashZip.ps1")
 $repoRoot = (Resolve-Path (Join-Path $sourceDir "..")).Path
 $version = (Get-Content -LiteralPath (Join-Path $sourceDir "VERSION.txt") -Raw).Trim()
 $packageId = "Hrogers.TileEditorBridge"
@@ -34,8 +38,22 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
 }
 
 $GameDir = (Resolve-Path -LiteralPath $GameDir).Path
-$managedDir = Join-Path $GameDir "Railroader_Data\Managed"
-$ummDir = Join-Path $managedDir "UnityModManager"
+$managedDir = if ([string]::IsNullOrWhiteSpace($ManagedReferencesDir)) {
+    Join-Path $GameDir "Railroader_Data\Managed"
+} else {
+    (Resolve-Path -LiteralPath $ManagedReferencesDir).Path
+}
+$ummDir = if ([string]::IsNullOrWhiteSpace($ModManagerReferencesDir)) {
+    $managedUmm = Join-Path $managedDir "UnityModManager"
+    $modsUmm = Join-Path $GameDir "Mods\UnityModManager"
+    if (Test-Path -LiteralPath $modsUmm -PathType Container) {
+        $modsUmm
+    } else {
+        $managedUmm
+    }
+} else {
+    (Resolve-Path -LiteralPath $ModManagerReferencesDir).Path
+}
 if (!(Test-Path -LiteralPath (Join-Path $GameDir "Railroader.exe"))) {
     throw "Railroader.exe was not found in '$GameDir'."
 }
@@ -47,8 +65,10 @@ if (Test-Path -LiteralPath $releaseRoot) {
     throw "Release $version already exists at '$releaseRoot'. Bump VERSION.txt before building another immutable release."
 }
 
-$pythonFinder = Join-Path $sourceDir "Find Tile Editor Python.ps1"
-$pythonExe = & $pythonFinder | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    $pythonFinder = Join-Path $sourceDir "Find Tile Editor Python.ps1"
+    $PythonExe = & $pythonFinder | Select-Object -First 1
+}
 if ([string]::IsNullOrWhiteSpace($pythonExe)) {
     throw "A compatible 64-bit Python 3.10 or newer installation was not found."
 }
@@ -69,7 +89,11 @@ if ($testExitCode -ne 0) {
 
 Write-Host "[2/5] Building UMM bridge..."
 $projectPath = Join-Path $sourceDir "Hrogers.TileEditorBridge.csproj"
-& dotnet build $projectPath -c Release "-p:GameDir=$GameDir"
+& dotnet build $projectPath -c Release `
+    "-p:GameDir=$GameDir" `
+    "-p:UnityManagedDir=$managedDir" `
+    "-p:UnityModManagerDir=$ummDir" `
+    "-p:EnableModDeploy=false"
 if ($LASTEXITCODE -ne 0) {
     throw "UMM bridge build failed."
 }
@@ -93,6 +117,11 @@ foreach ($name in @(
 )) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination $stageDir
 }
+$licensePath = Join-Path $repoRoot "LICENSE"
+if (!(Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+    throw "The repository LICENSE is required in every release package."
+}
+Copy-Item -LiteralPath $licensePath -Destination (Join-Path $stageDir "LICENSE")
 
 foreach ($packageName in @("edit_tiles", "mod_project")) {
     $sourcePackage = Join-Path $repoRoot $packageName
@@ -151,9 +180,12 @@ $checksumLines = Get-ChildItem -LiteralPath $stageDir -Recurse -File |
         "$hash  $relative"
     }
 $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding ASCII
+if (!($checksumLines -match '  LICENSE$')) {
+    throw "Release checksums must include LICENSE."
+}
 
 Write-Host "[4/5] Creating versioned zip..."
-Compress-Archive -LiteralPath $stageDir -DestinationPath $zipPath
+New-ForwardSlashZip -SourceDirectory $stageDir -DestinationPath $zipPath
 
 if ($Deploy) {
     Write-Host "[5/5] Deploying release to live Mods folder..."

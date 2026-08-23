@@ -172,6 +172,7 @@ namespace Hrogers.TileEditorBridge
                 () =>
                 {
                     CtcControlPointsArray.Add(entry);
+                    AddCtcTerritoryMember("controlPointIds", id);
                     _selectedCtcControlPointId = id;
                 });
             return "Created control point " + id + " at switch " + nodeId;
@@ -207,6 +208,10 @@ namespace Hrogers.TileEditorBridge
                 "Configure CTC control point",
                 () =>
                 {
+                    RenameCtcTerritoryMember(
+                        "controlPointIds",
+                        oldId,
+                        id);
                     entry["id"] = id;
                     entry["name"] = string.IsNullOrWhiteSpace(name)
                         ? id
@@ -244,10 +249,12 @@ namespace Hrogers.TileEditorBridge
         internal void DeleteSelectedCtcControlPoint()
         {
             var entry = RequireSelectedCtcControlPoint();
+            var id = ((string)entry["id"] ?? string.Empty).Trim();
             ExecuteCtcEdit(
                 "Delete CTC control point",
                 () =>
                 {
+                    RemoveCtcTerritoryMember("controlPointIds", id);
                     entry.Remove();
                     _selectedCtcControlPointId = string.Empty;
                 });
@@ -287,6 +294,7 @@ namespace Hrogers.TileEditorBridge
                 () =>
                 {
                     CtcBlocksArray.Add(entry);
+                    AddCtcTerritoryMember("blockIds", id);
                     _selectedCtcBlockId = id;
                 });
             return "Created block " + id + " with " + _selectedSegment.id;
@@ -364,6 +372,7 @@ namespace Hrogers.TileEditorBridge
                 "Delete CTC block",
                 () =>
                 {
+                    RemoveCtcTerritoryMember("blockIds", id);
                     entry.Remove();
                     foreach (var route in CtcControlPointsArray
                                  .OfType<JObject>()
@@ -479,18 +488,40 @@ namespace Hrogers.TileEditorBridge
         {
             if (_ctcUndo.Count == 0)
                 return;
-            _ctcRedo.Push((JObject)_ctcDocument.DeepClone());
-            _ctcDocument = _ctcUndo.Pop();
-            SaveCtcDocument();
+            var current = (JObject)_ctcDocument.DeepClone();
+            var previous = _ctcUndo.Pop();
+            try
+            {
+                _ctcDocument = previous;
+                SaveCtcDocument();
+                _ctcRedo.Push(current);
+            }
+            catch
+            {
+                _ctcDocument = current;
+                _ctcUndo.Push(previous);
+                throw;
+            }
         }
 
         internal void RedoCtc()
         {
             if (_ctcRedo.Count == 0)
                 return;
-            _ctcUndo.Push((JObject)_ctcDocument.DeepClone());
-            _ctcDocument = _ctcRedo.Pop();
-            SaveCtcDocument();
+            var current = (JObject)_ctcDocument.DeepClone();
+            var next = _ctcRedo.Pop();
+            try
+            {
+                _ctcDocument = next;
+                SaveCtcDocument();
+                _ctcUndo.Push(current);
+            }
+            catch
+            {
+                _ctcDocument = current;
+                _ctcRedo.Push(next);
+                throw;
+            }
         }
 
         private void ExecuteCtcEdit(string name, Action mutation)
@@ -523,6 +554,17 @@ namespace Hrogers.TileEditorBridge
         private void SaveCtcDocument()
         {
             EnsureCtcDocument();
+            try
+            {
+                EnsureSignalRuntimeRequirement();
+            }
+            catch (Exception exception)
+            {
+                _logger?.Warning(
+                    "Could not annotate the package manifest for portable "
+                    + "CTC; ctc-system.json will still be saved: "
+                    + exception.Message);
+            }
             if (string.IsNullOrWhiteSpace(_ctcBackupPath)
                 && File.Exists(_ctcPath))
             {
@@ -536,26 +578,7 @@ namespace Hrogers.TileEditorBridge
             var directory = Path.GetDirectoryName(_ctcPath);
             if (!string.IsNullOrWhiteSpace(directory))
                 Directory.CreateDirectory(directory);
-            var temp = _ctcPath + ".tile-editor.tmp";
-            File.WriteAllText(
-                temp,
-                _ctcDocument.ToString(Formatting.Indented));
-            if (File.Exists(_ctcPath))
-            {
-                try
-                {
-                    File.Replace(temp, _ctcPath, null);
-                }
-                catch
-                {
-                    File.Delete(_ctcPath);
-                    File.Move(temp, _ctcPath);
-                }
-            }
-            else
-            {
-                File.Move(temp, _ctcPath);
-            }
+            WritePackageManifestAtomically(_ctcPath, _ctcDocument);
             ReloadStandaloneSignalRuntime();
         }
 
@@ -611,19 +634,11 @@ namespace Hrogers.TileEditorBridge
                     ["formatVersion"] = 1,
                     ["territories"] = new JArray
                     {
-                        new JObject
-                        {
-                            ["id"] = "territory:main",
-                            ["name"] = "Main Dispatcher",
-                            ["mode"] = "ctc",
-                            ["signalFamily"] = "semaphore",
-                            ["era"] = "1900-1950",
-                            ["controlPointIds"] = new JArray(),
-                            ["blockIds"] = new JArray(),
-                        },
+                        NewPrimaryCtcTerritory(),
                     },
                     ["controlPoints"] = new JArray(),
                     ["blocks"] = new JArray(),
+                    ["trainOrders"] = new JArray(),
                 };
             }
             if (!(_ctcDocument["territories"] is JArray))
@@ -632,6 +647,89 @@ namespace Hrogers.TileEditorBridge
                 _ctcDocument["controlPoints"] = new JArray();
             if (!(_ctcDocument["blocks"] is JArray))
                 _ctcDocument["blocks"] = new JArray();
+            if (!(_ctcDocument["trainOrders"] is JArray))
+                _ctcDocument["trainOrders"] = new JArray();
+        }
+
+        private JObject PrimaryCtcTerritory()
+        {
+            EnsureCtcDocument();
+            var territories = (JArray)_ctcDocument["territories"];
+            var territory = territories.OfType<JObject>().FirstOrDefault();
+            if (territory != null)
+                return territory;
+            territory = NewPrimaryCtcTerritory();
+            territories.Add(territory);
+            return territory;
+        }
+
+        private static JObject NewPrimaryCtcTerritory()
+        {
+            return new JObject
+            {
+                ["id"] = "territory:main",
+                ["name"] = "Main Dispatcher",
+                ["mode"] = "ctc",
+                ["signalFamily"] = "semaphore",
+                ["era"] = "1900-1950",
+                ["controlPointIds"] = new JArray(),
+                ["blockIds"] = new JArray(),
+            };
+        }
+
+        private void AddCtcTerritoryMember(string propertyName, string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return;
+            var territory = PrimaryCtcTerritory();
+            var values = territory[propertyName] as JArray;
+            if (values == null)
+            {
+                values = new JArray();
+                territory[propertyName] = values;
+            }
+            if (!values.Values<string>().Any(value => string.Equals(
+                    value,
+                    id,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                values.Add(id);
+            }
+        }
+
+        private void RemoveCtcTerritoryMember(string propertyName, string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return;
+            foreach (var values in ((JArray)_ctcDocument["territories"])
+                         .OfType<JObject>()
+                         .Select(territory => territory[propertyName] as JArray)
+                         .Where(array => array != null))
+            {
+                foreach (var token in values.Where(token => string.Equals(
+                             (string)token,
+                             id,
+                             StringComparison.OrdinalIgnoreCase)).ToArray())
+                {
+                    token.Remove();
+                }
+            }
+        }
+
+        private void RenameCtcTerritoryMember(
+            string propertyName,
+            string oldId,
+            string newId)
+        {
+            if (string.Equals(
+                    oldId,
+                    newId,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+            RemoveCtcTerritoryMember(propertyName, oldId);
+            AddCtcTerritoryMember(propertyName, newId);
         }
 
         private JArray CtcControlPointsArray

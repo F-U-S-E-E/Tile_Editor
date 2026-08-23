@@ -18,6 +18,31 @@ from .geometry import (
 from .constants import TRACK_CLASS_NAMES, TRACK_CLASS_JSON, TRACK_STYLES, SIMPLE_GRAPH_TAGS
 
 
+def _write_spliney(layer: 'Layer', spliney_id: str, entry: dict):
+    raw = layer.raw_collection('splineys', create=True)
+    raw[spliney_id] = (
+        layer.spliney_for_native(entry)
+        if layer.is_fuse_native else _copy.deepcopy(entry)
+    )
+    layer.remove_world_removal('splineys', spliney_id)
+    layer.splineys[spliney_id] = _copy.deepcopy(entry)
+    layer.dirty = True
+
+
+def _delete_spliney(layer: 'Layer', spliney_id: str):
+    if layer.read_only:
+        return False
+    layer.splineys[spliney_id] = None
+    raw = layer.raw_collection('splineys', create=True)
+    if layer.is_fuse_native:
+        raw.pop(spliney_id, None)
+        layer.add_world_removal('splineys', spliney_id)
+    else:
+        raw[spliney_id] = None
+    layer.dirty = True
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Area / Industry helpers
 # ---------------------------------------------------------------------------
@@ -358,11 +383,7 @@ def spliney_set_point(layer: 'Layer', spliney_id: str, point_idx: int,
         pt['width'] = width
     pts[point_idx] = pt
     spl['points'] = pts
-    # Sync back to raw -- create the key path if it doesn't exist yet
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = spl
-    layer.dirty = True
+    _write_spliney(layer, spliney_id, spl)
     return True
 
 
@@ -381,7 +402,7 @@ def scenery_set(layer: 'Layer', scenery_id: str,
     existing entry so unknown fields survive a round-trip (B3).
     """
     # Start from existing entry to preserve ExtraData / unknown fields
-    existing = (layer._raw.get('scenery') or {}).get(scenery_id) or {}
+    existing = layer.scenery.get(scenery_id) or {}
     entry = dict(existing)
     entry.update({
         'modelIdentifier': model_id,
@@ -389,9 +410,12 @@ def scenery_set(layer: 'Layer', scenery_id: str,
         'rotation': {'x': rotX, 'y': rotY, 'z': rotZ},
         'scale':    {'x': scale_x, 'y': scale_y, 'z': scale_z},
     })
-    if 'scenery' not in layer._raw:
-        layer._raw['scenery'] = {}
-    layer._raw['scenery'][scenery_id] = entry
+    raw = layer.raw_collection('scenery', create=True)
+    raw[scenery_id] = (
+        layer.scenery_for_native(entry)
+        if layer.is_fuse_native else _copy.deepcopy(entry)
+    )
+    layer.remove_world_removal('scenery', scenery_id)
     layer.scenery[scenery_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
@@ -401,9 +425,12 @@ def scenery_delete(layer: 'Layer', scenery_id: str):
     if layer.read_only:
         return False
     layer.scenery[scenery_id] = None
-    if 'scenery' not in layer._raw:
-        layer._raw['scenery'] = {}
-    layer._raw['scenery'][scenery_id] = None
+    raw = layer.raw_collection('scenery', create=True)
+    if layer.is_fuse_native:
+        raw.pop(scenery_id, None)
+        layer.add_world_removal('scenery', scenery_id)
+    else:
+        raw[scenery_id] = None
     layer.dirty = True
     return True
 
@@ -423,7 +450,8 @@ def load_set(layer: 'Layer', load_id: str,
 
     Matches SerializedLoad (StrangeCustoms/Tracks/SerializedLoad.cs) exactly:
       description          -- display name
-      units                -- LoadUnits enum string, e.g. 'Ton', 'CubicFoot', 'Each'
+      units                -- LoadUnits enum string. Native FUSE layers accept
+                              Pounds, Gallons, or Quantity ('Each' maps to Quantity).
       density              -- mass per unit volume
       unit_weight_in_pounds
       importable           -- whether the load can be imported
@@ -439,19 +467,52 @@ def load_set(layer: 'Layer', load_id: str,
         'payPerQuantity':    float(pay_per_quantity),
         'costPerUnit':       float(cost_per_unit),
     }
-    if 'loads' not in layer._raw:
-        layer._raw['loads'] = {}
-    layer._raw['loads'][load_id] = entry
+    raw = layer.raw_collection('loads', create=True)
+    if layer.is_fuse_native:
+        native_units = {
+            'pound': 'Pounds', 'pounds': 'Pounds',
+            'gallon': 'Gallons', 'gallons': 'Gallons',
+            'each': 'Quantity', 'quantity': 'Quantity',
+        }.get(str(units or '').strip().lower())
+        if native_units is None:
+            raise ValueError(
+                "Native FUSE load units must be Pounds, Gallons, or Quantity"
+            )
+        raw[load_id] = {
+            'name': description,
+            'units': native_units,
+            'density': float(density),
+            'unitWeightInPounds': float(unit_weight_in_pounds),
+            'importable': bool(importable),
+            'payPerQuantity': float(pay_per_quantity),
+            'costPerUnit': float(cost_per_unit),
+        }
+    else:
+        raw[load_id] = entry
     layer.loads[load_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
 
 def load_delete(layer: 'Layer', load_id: str):
-    """Delete a load definition from a layer."""
-    layer.loads.pop(load_id, None)
-    if 'loads' in layer._raw:
-        layer._raw['loads'].pop(load_id, None)
+    """Delete a locally authored load definition from a layer.
+
+    FUSE 1.0.6 has no operations.removals.loads marker, so a native layer
+    cannot override a load inherited from another package.
+    """
+    if layer.read_only:
+        return False
+    raw = layer.raw_collection('loads', create=True)
+    if layer.is_fuse_native:
+        if load_id not in raw:
+            raise ValueError(
+                "FUSE 1.0.6 cannot remove a load inherited from another package"
+            )
+        raw.pop(load_id, None)
+    else:
+        raw[load_id] = None
+    layer.loads[load_id] = None
     layer.dirty = True
+    return True
 
 
 
@@ -464,19 +525,37 @@ def text_set(layer: 'Layer', text_id: str, text: str):
     TrackState.Texts is Dictionary<string,string> -- the value must be a plain
     string, not a nested dict.  e.g. {"SIGN1": "Waynesville"}
     """
-    if 'texts' not in layer._raw:
-        layer._raw['texts'] = {}
-    layer._raw['texts'][text_id] = text
-    layer.texts[text_id] = text
+    raw = layer.raw_collection('texts', create=True)
+    if layer.is_fuse_native:
+        existing = raw.get(text_id)
+        position = (
+            existing.get('position')
+            if isinstance(existing, dict) else None
+        ) or {'x': 0.0, 'y': 0.0, 'z': 0.0}
+        entry = _copy.deepcopy(existing) if isinstance(existing, dict) else {}
+        entry.update({'text': text, 'position': position})
+        raw[text_id] = entry
+        layer.texts[text_id] = _copy.deepcopy(raw[text_id])
+        layer.remove_world_removal('mapLabels', text_id)
+    else:
+        raw[text_id] = text
+        layer.texts[text_id] = text
     layer.dirty = True
 
 
 def text_delete(layer: 'Layer', text_id: str):
     """Delete a text entry from a layer."""
-    layer.texts.pop(text_id, None)
-    if 'texts' in layer._raw:
-        layer._raw['texts'].pop(text_id, None)
+    if layer.read_only:
+        return False
+    layer.texts[text_id] = None
+    raw = layer.raw_collection('texts', create=True)
+    if layer.is_fuse_native:
+        raw.pop(text_id, None)
+        layer.add_world_removal('mapLabels', text_id)
+    else:
+        raw[text_id] = None
     layer.dirty = True
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -563,11 +642,7 @@ def fit_trestle_to_segment(layer: 'Layer', spliney_id: str, seg: dict,
         return False
     updated = _copy.deepcopy(entry)
     updated['points'] = points
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = updated
-    layer.splineys[spliney_id] = _copy.deepcopy(updated)
-    layer.dirty = True
+    _write_spliney(layer, spliney_id, updated)
     return True
 
 
@@ -599,11 +674,7 @@ def create_trestle_from_segment(layer: 'Layer', seg: dict,
         'tailstyle': tail_style,
     }
 
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][trs_id] = entry
-    layer.splineys[trs_id] = _copy.deepcopy(entry)
-    layer.dirty = True
+    _write_spliney(layer, trs_id, entry)
     return trs_id
 
 
@@ -621,11 +692,7 @@ def spliney_add_road(layer: 'Layer', spliney_id: str, profile: str,
         'style':   style,
         'points':  points,
     }
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = entry
-    layer.splineys[spliney_id] = _copy.deepcopy(entry)
-    layer.dirty = True
+    _write_spliney(layer, spliney_id, entry)
 
 
 def next_spliney_id(layer: 'Layer', prefix: str = 'SP') -> str:
@@ -657,11 +724,7 @@ def spliney_insert_point(layer: 'Layer', spliney_id: str, point_idx: int,
     pts.insert(insert_at, _copy.deepcopy(point))
     updated = dict(spl)
     updated['points'] = pts
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = updated
-    layer.splineys[spliney_id] = _copy.deepcopy(updated)
-    layer.dirty = True
+    _write_spliney(layer, spliney_id, updated)
     return insert_at
 
 
@@ -679,11 +742,7 @@ def spliney_delete_point(layer: 'Layer', spliney_id: str, point_idx: int) -> boo
     pts.pop(point_idx)
     updated = dict(spl)
     updated['points'] = pts
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = updated
-    layer.splineys[spliney_id] = _copy.deepcopy(updated)
-    layer.dirty = True
+    _write_spliney(layer, spliney_id, updated)
     return True
 
 
@@ -761,10 +820,32 @@ def turntable_set(layer: 'Layer', spliney_id: str,
         'StartPrefab':          start_prefab,
         'EndPrefab':            end_prefab,
     }
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = entry
-    layer.splineys[spliney_id] = _copy.deepcopy(entry)
+    if layer.is_fuse_native:
+        native_subdivisions = max(4, min(32, subdivisions))
+        if native_subdivisions != subdivisions:
+            print(
+                "[turntable_set] WARNING: native FUSE clamps subdivisions "
+                f"{subdivisions} to {native_subdivisions}"
+            )
+        turntables = layer.raw_collection('turntables', create=True)
+        turntables[spliney_id] = {
+            'position': entry['Position'],
+            'rotation': entry['Rotation'],
+            'radius': radius,
+            'subdivisions': native_subdivisions,
+            'roundhouse': ({
+                'stalls': roundhouse_stalls,
+                'trackLength': roundhouse_track_length,
+                'stallPrefab': stall_prefab,
+                'startPrefab': start_prefab,
+                'endPrefab': end_prefab,
+            } if roundhouse_stalls > 0 else None),
+        }
+        if turntables[spliney_id]['roundhouse'] is None:
+            turntables[spliney_id].pop('roundhouse')
+    else:
+        layer.raw_collection('splineys', create=True)[spliney_id] = entry
+        layer.splineys[spliney_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
 
@@ -780,6 +861,7 @@ def spliney_add_maplabel(layer: 'Layer', spliney_id: str,
       instead, e.g. 'YourMod.MapLabelBuilder', to remove the AlinasMapMod dependency.
 
     Schema (Position + Text) confirmed from AlinasMapMod/Definitions/SerializedMapLabel.cs.
+    Native FUSE map labels do not support the legacy ``alignment`` field.
     """
     entry = {
         'handler':   handler,
@@ -787,19 +869,24 @@ def spliney_add_maplabel(layer: 'Layer', spliney_id: str,
         'text':      text,
         'alignment': alignment,
     }
-    if 'splineys' not in layer._raw:
-        layer._raw['splineys'] = {}
-    layer._raw['splineys'][spliney_id] = entry
-    layer.splineys[spliney_id] = _copy.deepcopy(entry)
+    if layer.is_fuse_native:
+        layer.raw_collection('texts', create=True)[spliney_id] = {
+            'text': text,
+            'position': {'x': x, 'y': y, 'z': z},
+        }
+        layer.texts[spliney_id] = _copy.deepcopy(
+            layer.raw_collection('texts')[spliney_id]
+        )
+        layer.remove_world_removal('mapLabels', spliney_id)
+    else:
+        layer.raw_collection('splineys', create=True)[spliney_id] = entry
+        layer.splineys[spliney_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
 
 def spliney_delete(layer: 'Layer', spliney_id: str):
     """Delete a spliney from a layer."""
-    layer.splineys.pop(spliney_id, None)
-    if 'splineys' in layer._raw:
-        layer._raw['splineys'].pop(spliney_id, None)
-    layer.dirty = True
+    return _delete_spliney(layer, spliney_id)
 
 
 
@@ -899,19 +986,35 @@ def mandela_set(layer: 'Layer', mandela_id: str,
         entry['enabled'] = False
     elif force_enabled:
         entry['enabled'] = True
-    if 'mandelas' not in layer._raw:
-        layer._raw['mandelas'] = {}
-    layer._raw['mandelas'][mandela_id] = entry
+    raw = layer.raw_collection('mandelas', create=True)
+    if layer.is_fuse_native:
+        existing_key = layer.find_scene_clone_key(mandela_id)
+        key = existing_key or layer.scene_clone_id(mandela_id)
+        raw[key] = layer.mandela_for_native(mandela_id, entry)
+        layer.remove_world_removal('sceneClones', key)
+    else:
+        raw[mandela_id] = entry
     layer.mandelas[mandela_id] = _copy.deepcopy(entry)
     layer.dirty = True
 
 
 def mandela_delete(layer: 'Layer', mandela_id: str):
     """Delete a mandela from a layer."""
-    layer.mandelas.pop(mandela_id, None)
-    if 'mandelas' in layer._raw:
-        layer._raw['mandelas'].pop(mandela_id, None)
+    if layer.read_only:
+        return False
+    layer.mandelas[mandela_id] = None
+    raw = layer.raw_collection('mandelas', create=True)
+    if layer.is_fuse_native:
+        key = (
+            layer.find_scene_clone_key(mandela_id)
+            or layer.scene_clone_id(mandela_id)
+        )
+        raw.pop(key, None)
+        layer.add_world_removal('sceneClones', key)
+    else:
+        raw[mandela_id] = None
     layer.dirty = True
+    return True
 
 
 def next_mandela_id(layer: 'Layer') -> str:
